@@ -72,5 +72,5 @@ An **overlay on Jieli's public SDK** (`Jieli-Tech/fw-AC63_BT_SDK`, pinned commit
 
 - Makefile targets carry `## [STEP N] …` help comments and are listed in `.PHONY`; firmware targets use the `fw-` prefix.
 - Docs are written in plain, short sentences and separate **observed / inferred / unknown**; keep that when adding findings.
-- Work on the `firmware-re` branch (`main` receives merges). Commit only when asked.
+- Work on `main` (the only branch). Commit only when asked.
 - Subagent tasks that dig deep into the vendor firmware have twice been stopped by model safeguards; keep such tasks narrow and framed as plain SDK work.

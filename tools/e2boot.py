@@ -190,6 +190,7 @@ def wait_for_updater(log=print):
 
 
 def main(argv):
+    sys.stdout.reconfigure(line_buffering=True)     # show progress at once, also through make or a pipe
     op, args = (argv[1] if len(argv) > 1 else ""), argv[2:]
     if op == "enter" and args:
         return enter(args[0])
