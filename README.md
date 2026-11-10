@@ -151,16 +151,25 @@ make fw-build                       # build fw/out/app.bin in the Jieli toolchai
 make fw-image base=<flash image>    # put the built app into an existing image
 ```
 
-**Status (2026-11-10): do not flash it.** The firmware builds and its logic is host-tested. It has not run on the device. It is built for the SDK's demo board, not for the E2's pins.
+**Status (2026-11-10): the unit is locked out.** A first build was flashed and ran: it answered on USB and went into update mode on command. After the unit was switched off it has not started again. The likely cause is the SDK's battery check at start, which the stock firmware does not use on this board. `docs/update-path.md` has the record ("Lockout"). The sources now hold a build without that check; it has not run on the device.
 
-Done on the device so far, with the stock firmware: the read-only `get` queries, and one `JUMPBOOT`, which put the unit in update mode as expected.
+```sh
+make fw-rescue                      # wait for the E2 on USB, then flash fw/out/e2-kindle.bin and reboot (writes to the device)
+```
+
+Done on the device:
+
+- With the stock firmware: `get` queries, `JUMPBOOT`, and a read of every block's CRC through the boot-area updater (`tools/e2boot.py`). The unit ran the vendor's `zoom-phone-tablet` image.
+- Restore proof: the stock image was written back with `tools/e2boot.py flash` and the unit worked.
+- First custom flash, and the update path from the custom firmware.
 
 Open points:
 
-- **Pairing.** The chip's Bluetooth library has no LE Secure Connections. The firmware offers legacy pairing. It is unknown whether the Kindle accepts that.
-- **Backup.** It is unknown whether the boot-area updater can read flash back. Without that there is no full backup of the unit.
-- **Board pins.** Keys, LED, battery and USB-power sense are assumed from analysis. They must be checked on the board and put in a board patch.
-- **Update entry in the own firmware.** The reset sequence equals the stock one, and the stock one works on the device. The own firmware's USB start is untested.
+- **Getting back in.** Either a start that reaches USB, or the chip ROM's USB download mode, which needs a forced-download tool.
+- **Pairing.** The chip's Bluetooth library has no LE Secure Connections. The firmware offers legacy pairing. It is unknown whether the Kindle accepts that. The Kindle did not list the remote during the short time the first build ran.
+- **Backup.** The updater cannot read flash. The backup is the vendor image that the unit was proven to hold; pairing data and settings are not saved.
+- **Board pins.** Keys, LED and USB-power sense come from the stock firmware's tables (`fw/patches/0005-e2-board.patch`). They are not measured on the board.
+- **Power-off and wake-up.** Untested. Self power-off is disabled in the sources until wake-up is proven.
 
 ## Reverse-engineering resources
 

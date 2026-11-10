@@ -15,7 +15,7 @@ raw q32s code linked for entry `0x1E00120` (first bytes `eeff xxxx xxxx edff`).
 - After the container step the script fails unless `app.bin` is 100-240 KB, starts `ee ff .. .. .. .. ed ff`, and the `.text`
   section of `sdk.elf` starts at `0x1e00120`.
 - `patches/0001-select-keypage.patch` is applied to the clone: `CONFIG_APP_KEYBOARD 0`, `CONFIG_APP_KEYPAGE 1`.
-- `patches/0003-kindle-click-app.patch` switches to the Kindle Click app (next section). `0002` is reserved for the E2 board.
+- `patches/0003-kindle-click-app.patch` switches to the Kindle Click app (next section). `patches/0005-e2-board.patch` is the E2 board config (see "E2 board" below).
 - Reference result of the stock example (unmodified SDK + 0001 only, before 0003 existed): `app.bin` = 228176 bytes, starts `ee ff d0 19 00 00 ed ff`.
   Builds differ in the embedded build-time bytes: the SDK logs `__DATE__`/`__TIME__` (`apps/hid/app_main.c:184`) and
   each `app.bin` contains `Nov 10 2026` plus the `HH:MM:SS` of its build. Three fresh builds (12:45:46, 12:46:00, 12:46:15)
@@ -84,6 +84,33 @@ Addresses are in the zoom-phone-tablet `app.bin` (load `0x1E00120`), Ghidra proj
 **In this build (demo board config) the key entry is NOT compiled in: the USB command is the only way into update mode.**
 `fw/build.sh` prints which on its last line ("E2 update: key entry compiled in" / "NOT compiled in").
 
+## E2 board
+
+`patches/0005-e2-board.patch` changes the demo board config to the E2's pins. Every value is read from the stock firmware
+of the unit's variant (`zoom-phone-tablet`); the built key table is byte-identical to the stock one. None is measured on the board.
+The unit has three push buttons and a side selector (Up/Down, Left/Right, Volume, Off), per the owner.
+
+| Function | Pin | Source in the stock image |
+|---|---|---|
+| Key 1 / 2 / 3 (IO keys to GND, values 1 / 2 / 3) | PB7 / PA0 / PA2 | `iokey_list` `0x1E18E8A` |
+| AD input (values 0, 4, 5, 6; external pull-up): the side mode selector, inferred | PA1 | `adkey_data` `0x1E18EF4` |
+| USB-power sense (input, no internal pull) | PA7 | pin setup `0x1E054D0`, wake-up table |
+| Wake-up from soft-off | PB7, PA0, PA2, PA1 (falling), PA7 (rising) | RAM `0x864`..`0x87C` |
+| LED (SDK `pwm_led`, one-IO mode) | PB5 | `led_platform_data` `0x1E18E98` |
+| Charge status (input, pull-up; low while charging, inferred) | PB6 | `0x1E0558C` |
+| Analog inputs, use unknown | PA8, PA1 | board init `0x1E09BF2` |
+
+Ours: the three IO keys as stock, no debug UART (PA0 is key 2), wake-up on keys 1 and 2 and on PA7.
+The LED is driven as stock does (SDK `pwm_led`): slow flash while advertising, one flash every 5 s while connected.
+Not used by our firmware: the AD input, wake-up on key 3 and on PA1. The charge-status pin and the two analog pins are
+only read for the status line (send `?` on the serial port: `vbat`, `pa8`, `pa1`, `pa7`, `pb6`, `up`). So the selector does
+nothing, including its Off position (unless Off cuts the battery in hardware, which is unknown). The AD key is off because
+a resting selector would read as a key held forever.
+
+**State of the power policy (2026-11-10):** after the lockout (`docs/update-path.md`), the build never powers itself off:
+`E2_SELF_POWER_OFF` is 0 in `src/e2_power.c`, the SDK's battery check at start is removed (`patches/0005`, `app_main.c`), and
+the SDK's low-battery event is ignored. The "Power" section below describes the policy that is compiled out.
+
 Before flashing the custom firmware onto the E2:
 
 1. The build log says "key entry compiled in" for the real board config, and PA0 is not the debug UART TX
@@ -92,7 +119,7 @@ Before flashing the custom firmware onto the E2:
    USB HID updater. This proves that the boot code acts on the tag written at `0x800`, which is inferred, not read.
 3. After the first flash, check first that the custom firmware enumerates as `4c4a:4155` CDC.
 4. (iv) The USB-power sense pin `TCFG_E2_USB_SENSE_PORT` and the wake-up key pins `TCFG_E2_WAKE_KEY1_PORT` / `TCFG_E2_WAKE_KEY2_PORT`
-   are assumed (PA7, PB7, PA0, from the stock firmware): verify all three against the real board, and that `fw/build.sh`
+   are taken from the stock firmware (PA7, PB7, PA0), not measured: check that `fw/build.sh`
    lists the wake-up pins you expect ("E2 power: wake-up pins compiled in").
 5. (v) On the real board, confirm that the sense pin reads high when the USB cable is plugged in (and low when it is not),
    before relying on it. If it is wrong, the unit either powers off while plugged in or never powers off.

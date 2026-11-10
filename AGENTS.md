@@ -14,8 +14,8 @@ Two linked projects for one device, the HANLINYUE "E2 Control" Bluetooth page tu
 - It is the owner's only unit and there is **no recovery tool**. A bad flash can be final.
 - Every action that writes to the device, or changes its state (for example the `JUMPBOOT` command), needs the owner's explicit go-ahead at that moment. Read-only `get` queries were approved once; ask again in a new session.
 - Never flash an image built for another chip. The vendor's Kindle builds are for AC636N.
-- Do not flash the custom firmware until every item of the "Before flashing" checklist in `fw/README.md` holds. As of 2026-11-10 it is built for the SDK's demo board, not the E2's pins.
-- Device state as of 2026-11-10: stock firmware `V0.04`. `get` queries and one `JUMPBOOT` were run on it (results in `docs/update-path.md`). The unit left update mode after a second cable re-plug and runs the stock firmware again (serial port back, same `get` replies). Check which mode it is in before assuming a serial port exists.
+- Do not flash the custom firmware until every item of the "Before flashing" checklist in `fw/README.md` holds. As of 2026-11-10 the pins come from the stock firmware and are not measured on the board; no write has been made to the device yet.
+- Device state as of 2026-11-10: **the custom firmware is on the unit and the unit is not reachable**: it has not started since it was switched off (see "Lockout" in `docs/update-path.md`). The first flash and the update path from it worked before that. Before that: stock firmware `V0.04`. `get` queries and one `JUMPBOOT` were run on it (results in `docs/update-path.md`). It runs the vendor's `zoom-phone-tablet` image (proved by block CRCs with `tools/e2boot.py verify`; one block before `VM` differs). `tools/e2boot.py reboot` leaves update mode. Check which mode it is in before assuming a serial port exists.
 - Serial protocol: JSON at 460800 baud on `/dev/cu.usbmodem*` (on macOS set the speed with the `IOSSIOSPEED` ioctl; `pyserial` is not installed). The stock firmware sometimes drops the first command after the port opens, so send a `get` first.
 - Firmware images (`firmware/*.bin`), flash backups (`backup/`) and vendor `.ufw` files stay out of git; only hashes and manifests are committed.
 
@@ -58,7 +58,7 @@ make fw-image base=<flash image>      # put fw/out/app.bin into an existing imag
 
 An **overlay on Jieli's public SDK** (`Jieli-Tech/fw-AC63_BT_SDK`, pinned commit in `fw/build.sh`), not a standalone program:
 
-- `fw/build.sh` clones the SDK into `fw/sdk/`, **hard-resets and cleans it on every build**, copies `fw/src/` into the SDK tree, applies `fw/patches/*.patch` in name order, builds in Docker, then checks the result (size, first instructions, load address). Never edit `fw/sdk/` by hand: SDK changes go into the patches (regenerate a patch from a diff of the SDK tree). `0002` is reserved for the E2 board patch, which does not exist yet.
+- `fw/build.sh` clones the SDK into `fw/sdk/`, **hard-resets and cleans it on every build**, copies `fw/src/` into the SDK tree, applies `fw/patches/*.patch` in name order, builds in Docker, then checks the result (size, first instructions, load address). Never edit `fw/sdk/` by hand: SDK changes go into the patches (regenerate a patch from a diff of the SDK tree). `0005-e2-board.patch` holds the E2's pins, read from the stock firmware (table in `fw/README.md`).
 - **Two kinds of source files, kept apart on purpose:**
   - `fw/src/kc_*.c/.h` — pure C99, no SDK includes, host-tested in `fw/tests/test_kc.c`. Protocol bytes (`kc_proto`), key→action (`kc_keys`), link-ready gate and press queue (`kc_link`), power-off decision (`kc_power`), update-command matcher (`kc_update_cmd`). `make fw-test` globs `kc_*.c`, so an SDK-bound file must not use that prefix.
   - `fw/src/app_*.c`, `fw/src/e2_*.c` — SDK-bound glue: BLE events and keys (`app_kindle_click`), report sending (`app_kindle_send`), USB update entry (`e2_update`), power policy (`e2_power`). They only compile inside the container; editor diagnostics about missing SDK headers are noise.
@@ -66,7 +66,7 @@ An **overlay on Jieli's public SDK** (`Jieli-Tech/fw-AC63_BT_SDK`, pinned commit
 - **Constraints that shape the code** (reasons are in the spec and `fw/README.md`):
   - The update entry must survive: USB CDC stays started as in the stock firmware, and `JUMPBOOT` on the serial port resets into the boot-area updater. With USB started the chip cannot sleep, so the app powers the unit off instead (180 s unconnected, 30 min idle while connected), never while the USB-power sense pin is high.
   - The BD19 Bluetooth library has no LE Secure Connections; pairing is legacy Just Works. Whether the Kindle accepts it is untested.
-  - Board pins (keys, USB-power sense, wake-up) are assumptions from analysis, held in board-config macros, to be verified on the board.
+  - Board pins (keys, USB-power sense, wake-up) are read from the stock firmware, held in board-config macros, not measured on the board.
 
 ## Conventions
 

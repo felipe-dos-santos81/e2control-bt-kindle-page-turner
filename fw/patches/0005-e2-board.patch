@@ -1,0 +1,92 @@
+--- a/apps/hid/board/bd19/board_ac632n_demo_cfg.h	2026-11-10 18:11:53.006498747 -0300
++++ b/apps/hid/board/bd19/board_ac632n_demo_cfg.h	2026-11-10 18:46:23.087892847 -0300
+@@ -21,7 +21,7 @@
+ //*********************************************************************************//
+ //                                 UART配置                                        //
+ //*********************************************************************************//
+-#define TCFG_UART0_ENABLE					ENABLE_THIS_MOUDLE                     //串口打印模块使能
++#define TCFG_UART0_ENABLE					DISABLE_THIS_MOUDLE                    //E2: no debug UART, PA0 is key 2
+ #define TCFG_UART0_RX_PORT					NO_CONFIG_PORT                         //串口接收脚配置（用于打印可以选择NO_CONFIG_PORT）
+ #define TCFG_UART0_TX_PORT  				IO_PORTA_00                            //串口发送脚配置
+ #define TCFG_UART0_BAUDRATE  				1000000                                //串口波特率配置
+@@ -112,13 +112,13 @@
+ //*********************************************************************************//
+ //                                 iokey 配置                                      //
+ //*********************************************************************************//
+-#define TCFG_IOKEY_ENABLE					DISABLE_THIS_MOUDLE //是否使能IO按键
++#define TCFG_IOKEY_ENABLE					ENABLE_THIS_MOUDLE  //E2: three IO keys to GND, pins and values from the stock iokey_list
+ //E2 update entry: these two pins held low for 3 s at power-on enter update mode (fw/src/e2_update.c).
+ //Values = stock E2 keys 1 and 2 (iokey_list 0x1E18E8A: PB7, PA0, to GND). Not compiled in while PA0 is
+ //the debug UART0 TX (TCFG_UART0_TX_PORT above): the build log says which.
+ #define TCFG_E2_UPDATE_KEY1_PORT            TCFG_E2_WAKE_KEY1_PORT
+ #define TCFG_E2_UPDATE_KEY2_PORT            TCFG_E2_WAKE_KEY2_PORT
+-//E2 power (fw/src/e2_power.c, board_ac632n_demo.c wk_param). ALL THREE PINS ARE ASSUMED, to be verified on the board.
++//E2 power (fw/src/e2_power.c, board_ac632n_demo.c wk_param). Pins from the stock firmware of the unit's variant (iokey_list, wake-up table).
+ //USB power sense: plain GPIO input, active high (stock reads PA7 at start). While high the unit never powers off,
+ //and a rising edge wakes it from soft-off.
+ #define TCFG_E2_USB_SENSE_PORT              IO_PORTA_07
+@@ -134,21 +134,21 @@
+ 
+ #define TCFG_IOKEY_POWER_CONNECT_WAY		ONE_PORT_TO_LOW    //按键一端接低电平一端接IO
+ 
+-#define TCFG_IOKEY_POWER_ONE_PORT			IO_PORTB_01        //IO按键端口
++#define TCFG_IOKEY_POWER_ONE_PORT			IO_PORTB_07        //E2 key 1
+ #define TCFG_IOKEY_POWER_ONE_PORT_VALUE		0x1                //power port键值，不能设为0,key_value初始化为0,会误推keep事件
+ 
+ #define TCFG_IOKEY_PREV_CONNECT_WAY			ONE_PORT_TO_LOW  //按键一端接低电平一端接IO
+-#define TCFG_IOKEY_PREV_ONE_PORT			IO_PORTB_00
++#define TCFG_IOKEY_PREV_ONE_PORT			IO_PORTA_00        //E2 key 2
+ #define TCFG_IOKEY_PREV_ONE_PORT_VALUE		0x2              //prev port键值
+ 
+ #define TCFG_IOKEY_NEXT_CONNECT_WAY 		ONE_PORT_TO_LOW  //按键一端接低电平一端接IO
+-#define TCFG_IOKEY_NEXT_ONE_PORT			IO_PORTB_02
++#define TCFG_IOKEY_NEXT_ONE_PORT			IO_PORTA_02        //E2 key 3
+ #define TCFG_IOKEY_NEXT_ONE_PORT_VALUE		0x3              //next port键值
+ 
+ //*********************************************************************************//
+ //                                 adkey 配置                                      //
+ //*********************************************************************************//
+-#define TCFG_ADKEY_ENABLE                   ENABLE_THIS_MOUDLE //是否使能AD按键
++#define TCFG_ADKEY_ENABLE                   DISABLE_THIS_MOUDLE //E2: the AD input (stock: PA1) is the mode selector, not used here; a resting selector would read as a held key
+ #define TCFG_ADKEY_PORT                     IO_PORTB_01         //AD按键端口(需要注意选择的IO口是否支持AD功能)
+ /*AD通道选择，需要和AD按键的端口相对应:
+     AD_CH_PA1    AD_CH_PA3    AD_CH_PA4    AD_CH_PA5
+@@ -300,9 +300,9 @@
+ //*********************************************************************************//
+ //                                  LED 配置                                       //
+ //*********************************************************************************//
+-#define TCFG_PWMLED_ENABLE					DISABLE_THIS_MOUDLE			//是否支持PMW LED推灯模块
++#define TCFG_PWMLED_ENABLE					ENABLE_THIS_MOUDLE			//E2: LED as stock (led_platform_data 0x1E18E98: one-IO mode, PB5)
+ #define TCFG_PWMLED_IOMODE					LED_ONE_IO_MODE				//LED模式，单IO还是两个IO推灯
+-#define TCFG_PWMLED_PIN						IO_PORTB_06					//LED使用的IO口
++#define TCFG_PWMLED_PIN						IO_PORTB_05
+ 
+ //*********************************************************************************//
+ //                                  时钟配置                                       //
+--- a/apps/hid/board/bd19/board_ac632n_demo.c	2026-11-10 18:11:53.008418381 -0300
++++ b/apps/hid/board/bd19/board_ac632n_demo.c	2026-11-10 18:18:36.703492991 -0300
+@@ -543,7 +543,7 @@
+ 
+ #if E2_USB_SENSE_ENABLE
+ struct port_wakeup port_usb = {
+-	.pullup_down_enable = ENABLE,
++	.pullup_down_enable = DISABLE,                           //E2: no internal pull, as the stock wake-up table (the board drives the pin)
+ 	.edge               = RISING_EDGE,
+     .both_edge          = 0,
+ 	.iomap              = TCFG_E2_USB_SENSE_PORT,
+--- a/apps/hid/app_main.c	2026-11-10 18:46:22.954455338 -0300
++++ b/apps/hid/app_main.c	2026-11-10 18:46:23.088220140 -0300
+@@ -126,7 +126,12 @@
+         vbat_check_init();
+ #endif
+     } else {
+-        check_power_on_voltage();
++        //E2: no power-off at start on the chip's own VBAT reading. The stock E2 firmware does not use it: it measures
++        //the battery on PA8 and powers off below 2.80 V. With the SDK's 3.30 V limit the unit did not start after
++        //a power-off (docs/update-path.md).
++#if(TCFG_SYS_LVD_EN == 1)
++        vbat_check_init();
++#endif
+     }
+ 
+ #if TCFG_POWER_ON_NEED_KEY

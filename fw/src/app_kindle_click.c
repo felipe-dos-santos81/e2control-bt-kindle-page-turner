@@ -23,6 +23,7 @@
 #include "app_kindle_send.h"
 #include "e2_update.h"
 #include "e2_power.h"
+#include "asm/pwm_led.h"
 
 #if CONFIG_APP_KINDLE_CLICK
 
@@ -82,15 +83,26 @@ static void key_event(u8 key, u8 event)
     }
 }
 
+/*------------------------------------------------------------------ LED */
+/* Stock drives the LED pin (PB5) with the SDK's pwm_led in one-IO mode; so do we, when the board config has it. */
+static void led(u8 mode)
+{
+#if TCFG_PWMLED_ENABLE
+    pwm_led_mode_set(mode);
+#endif
+}
+
 /*------------------------------------------------------------------ BLE events */
 static void ble_status_event(u8 status)
 {
     switch (status) {
     case BLE_ST_ADV:
         e2_power_on_adv_start();    /* 180 s without a connection: power off (e2_power.c) */
+        led(PWM_LED0_SLOW_FLASH);   /* waiting for the Kindle */
         break;
     case BLE_ST_CONNECT:
         e2_power_on_connected();
+        led(PWM_LED0_ONE_FLASH_5S);
         kc_send_link_down();        /* new link: not ready until encrypted */
         break;
     case BLE_ST_DISCONN:
@@ -133,17 +145,13 @@ static void set_soft_poweroff(void)
     sys_timeout_add(NULL, power_off_or_restart, WAIT_DISCONN_TIME_MS);   /* let the link close first */
 }
 
-/* The SDK's low-battery event (app_power_event_handler, POWER_EVENT_POWER_LOW) ends here. With USB power present the
- * unit stays on. The SDK stopped its battery monitor before calling us; restarting it now would post this event
- * again every ~140 ms, so e2_power.c's poll restarts it once the USB power is gone. */
+/* The SDK's low-battery event (app_power_event_handler, POWER_EVENT_POWER_LOW) ends here, and is ignored. The SDK
+ * reads the chip's own VBAT pin; the stock E2 firmware does not use that reading (it measures the battery on PA8,
+ * power-off below 2.80 V). Until the E2's battery reading is verified, nothing powers the unit off on it. The SDK
+ * stopped its battery monitor before calling us; it stays stopped. */
 static void low_battery_poweroff(void)
 {
-    if (e2_power_usb_present()) {
-        log_info("low battery, USB power present: staying on");
-        e2_power_battery_monitor_stopped();
-        return;
-    }
-    set_soft_poweroff();
+    log_info("low battery event ignored");
 }
 
 static void app_start(void)

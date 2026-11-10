@@ -10,13 +10,15 @@
 #include "e2_power.h"
 
 #define E2_POWER_POLL_MS    1000
+/* ponytail: self power-off is off until wake-up from soft-off is proven on the E2 (a unit that switches off and
+ * does not wake cannot be reached over USB). Set to 1 once a wake-up by key and by USB power has been seen. */
+#define E2_SELF_POWER_OFF   0
 
 static void (*power_off_cb)(void);
 static u16  poll_timer;
 static u8   connected;
 static u32  unconnected_since_ms;   /* sys_timer_get_ms() at advertising start or at disconnect */
 static u32  last_key_ms;        /* ... at the last key event (or at connect) */
-static u8   monitor_stopped;    /* the SDK battery monitor is stopped (low-battery power-off skipped on USB power) */
 
 u8 e2_power_usb_present(void)
 {
@@ -32,22 +34,13 @@ static void power_poll(void *priv)
     u32 now = sys_timer_get_ms();
     u8 usb = e2_power_usb_present();   /* read right before the decision, every time */
 
-    if (monitor_stopped && !usb) {  /* stopped when a low-battery power-off was skipped on USB power */
-        monitor_stopped = 0;
-        vbat_check_init();          /* USB power is gone: the SDK checks the battery again */
-    }
     if (usb) {                      /* a timer that would expire re-arms: counting restarts at unplug */
         unconnected_since_ms = now;
         last_key_ms  = now;
     }
-    if (kc_power_should_off(usb, connected, now - unconnected_since_ms, now - last_key_ms)) {
+    if (E2_SELF_POWER_OFF && kc_power_should_off(usb, connected, now - unconnected_since_ms, now - last_key_ms)) {
         power_off_cb();             /* stops this poll through e2_power_stop */
     }
-}
-
-void e2_power_battery_monitor_stopped(void)
-{
-    monitor_stopped = 1;
 }
 
 void e2_power_stop(void)
@@ -62,12 +55,11 @@ void e2_power_init(void (*power_off)(void))
 {
     power_off_cb = power_off;
     connected    = 0;
-    monitor_stopped = 0;
     unconnected_since_ms = last_key_ms = sys_timer_get_ms();
 #if E2_USB_SENSE_ENABLE
     gpio_set_direction(TCFG_E2_USB_SENSE_PORT, 1);
     gpio_set_pull_up(TCFG_E2_USB_SENSE_PORT, 0);
-    gpio_set_pull_down(TCFG_E2_USB_SENSE_PORT, 1);      /* low when nothing drives it */
+    gpio_set_pull_down(TCFG_E2_USB_SENSE_PORT, 0);      /* no internal pull, as stock: the board drives the pin */
     gpio_set_die(TCFG_E2_USB_SENSE_PORT, 1);
 #endif
     poll_timer = sys_timer_add(NULL, power_poll, E2_POWER_POLL_MS);

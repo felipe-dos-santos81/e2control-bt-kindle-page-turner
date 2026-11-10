@@ -15,7 +15,7 @@ variant ?= zoom-phone-tablet
         ghidra-install \
         ghidra-score \
         ghidra-import ghidra-import-all \
-        fw-test tools-test fw-build fw-image
+        fw-test tools-test fw-build fw-image fw-rescue
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -74,8 +74,9 @@ fw-test: ## [STEP 5a] Run the host tests for the Kindle Click logic (fw/src/kc_*
 	$(CC) -std=c99 -Wall -Wextra -Werror -Ifw/src fw/src/kc_*.c fw/tests/test_kc.c -o fw/out/test_kc
 	fw/out/test_kc
 
-tools-test: ## [STEP 5a] Run the image-packer tests (needs firmware/*.bin)
+tools-test: ## [STEP 5a] Run the image-packer tests (needs firmware/*.bin) and the updater-client tests
 	$(PYTHON) tools/test_jlimg.py
+	$(PYTHON) tools/test_e2boot.py
 
 fw-build: ## [STEP 5b] Build fw/out/app.bin in the Jieli toolchain container (Docker)
 	fw/build.sh
@@ -84,3 +85,6 @@ fw-image: ## [STEP 5c] Put fw/out/app.bin into a base image → fw/out/e2-kindle
 	@test -n "$(base)" || { echo "usage: make fw-image base=<flash image, e.g. backup/e2-stock.bin>"; exit 1; }
 	mkdir -p fw/out
 	$(PYTHON) tools/jlimg.py pack $(base) fw/out/app.bin fw/out/e2-kindle.bin
+
+fw-rescue: ## [STEP 5d] Wait for the E2 on USB (either mode), then flash fw/out/e2-kindle.bin and reboot it (writes to the device)
+	$(PYTHON) tools/e2boot.py rescue fw/out/e2-kindle.bin --yes
