@@ -89,6 +89,15 @@ These carry the most risk. The plan must test each one early, before work that d
 - **The update path stays.** If download mode on this unit depends on the running firmware, the new firmware keeps the vendor's USB path into update mode. That part of the vendor USB protocol is then in scope (only the command that enters update mode, nothing else), and it is the first feature built and tested. A forced-download tool is a second line of defense, not a replacement.
 - **A button press may wake the remote.** After the Kindle has slept, the owner presses a button; the remote reconnects and then delivers that press. The remote does not advertise forever. Goal 4 is read this way: no re-pairing and no steps on the Kindle, but a button press on the remote is fine.
 
+### Later decisions (2026-11-10)
+
+These replace the hardware points above where they differ.
+
+- **No development board.** The owner wants to develop and test on the E2 Control itself. The pairing test, the update-path test and the bench check all happen on the E2.
+- **No forced-download tool.** The owner chose to go ahead without one and accepts that a bad first custom flash could be final. The backup therefore depends on what the boot-area updater can do; if it cannot read flash, there is no full backup, and the fallback baseline is the vendor's stock image for the unit's variant (per-unit data in `VM`/`BTIF` is then not backed up, and an app-only flash does not touch it).
+- **Order:** board facts (open the case) come before the first custom flash, because the firmware must use the E2's real pins. The first custom flash is followed at once by a second flash from the custom firmware, to prove the update path.
+- **Pairing risk:** the BD19 Bluetooth library has no LE Secure Connections (found in plan Task 9). The firmware offers legacy Just Works pairing. Whether the Kindle accepts it is unknown until the first pairing attempt on the E2.
+
 ## How it gets built
 
 All of this section is my call; the owner handed these choices over.
