@@ -159,13 +159,13 @@ static void set_soft_poweroff(void)
 }
 
 /* The SDK's low-battery event (app_power_event_handler, POWER_EVENT_POWER_LOW) ends here. With USB power present the
- * unit stays on. The SDK stopped its battery monitor before calling us: start it again, so a later low reading
- * (after unplugging) powers off. */
+ * unit stays on. The SDK stopped its battery monitor before calling us; restarting it now would post this event
+ * again every ~140 ms, so e2_power.c's poll restarts it once the USB power is gone. */
 static void low_battery_poweroff(void)
 {
     if (e2_power_usb_present()) {
         log_info("low battery, USB power present: staying on");
-        vbat_check_init();
+        e2_power_battery_monitor_stopped();
         return;
     }
     set_soft_poweroff();

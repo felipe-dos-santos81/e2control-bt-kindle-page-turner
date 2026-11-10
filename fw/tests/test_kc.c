@@ -207,6 +207,10 @@ static void test_power(void) {
     assert(!kc_power_should_off(false, true, KC_POWER_ADV_OFF_MS, KC_POWER_IDLE_OFF_MS - 1));
     assert(!kc_power_should_off(false, false, KC_POWER_ADV_OFF_MS - 1, UINT32_MAX));   /* not connected ignores the key time */
     assert(!kc_power_should_off(false, false, 0, KC_POWER_IDLE_OFF_MS));
+    /* battery monitor restart: only when it was stopped and USB power is gone */
+    assert(kc_power_restart_battery_monitor(true, false));
+    assert(!kc_power_restart_battery_monitor(true, true));
+    assert(!kc_power_restart_battery_monitor(false, false) && !kc_power_restart_battery_monitor(false, true));
 }
 int main(void) {
     test_adv();        puts("ok test_adv");

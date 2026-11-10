@@ -12,4 +12,8 @@
  * advertising started counts. Connected: only the time since the last key event counts. */
 bool kc_power_should_off(bool usb_power, bool connected, uint32_t ms_since_adv_start, uint32_t ms_since_last_key);
 
+/* True when the SDK battery monitor, stopped because a low-battery power-off was skipped on USB power, must be
+ * restarted now: it was stopped and USB power is gone. While USB power stays, the monitor stays stopped. */
+bool kc_power_restart_battery_monitor(bool monitor_stopped, bool usb_power);
+
 #endif

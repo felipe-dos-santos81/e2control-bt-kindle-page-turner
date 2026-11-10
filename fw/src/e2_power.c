@@ -5,6 +5,7 @@
 #include "system/includes.h"
 #include "app_config.h"
 #include "asm/gpio.h"
+#include "app_power_manage.h"
 #include "kc_power.h"
 #include "e2_power.h"
 
@@ -15,6 +16,7 @@ static u16  poll_timer;
 static u8   connected;
 static u32  unconnected_since_ms;   /* sys_timer_get_ms() at advertising start or at disconnect */
 static u32  last_key_ms;        /* ... at the last key event (or at connect) */
+static u8   monitor_stopped;    /* the SDK battery monitor is stopped (low-battery power-off skipped on USB power) */
 
 u8 e2_power_usb_present(void)
 {
@@ -30,6 +32,10 @@ static void power_poll(void *priv)
     u32 now = sys_timer_get_ms();
     u8 usb = e2_power_usb_present();   /* read right before the decision, every time */
 
+    if (kc_power_restart_battery_monitor(monitor_stopped, usb)) {
+        monitor_stopped = 0;
+        vbat_check_init();          /* USB power is gone: the SDK checks the battery again */
+    }
     if (usb) {                      /* a timer that would expire re-arms: counting restarts at unplug */
         unconnected_since_ms = now;
         last_key_ms  = now;
@@ -37,6 +43,11 @@ static void power_poll(void *priv)
     if (kc_power_should_off(usb, connected, now - unconnected_since_ms, now - last_key_ms)) {
         power_off_cb();             /* stops this poll through e2_power_stop */
     }
+}
+
+void e2_power_battery_monitor_stopped(void)
+{
+    monitor_stopped = 1;
 }
 
 void e2_power_stop(void)
@@ -51,6 +62,7 @@ void e2_power_init(void (*power_off)(void))
 {
     power_off_cb = power_off;
     connected    = 0;
+    monitor_stopped = 0;
     unconnected_since_ms = last_key_ms = sys_timer_get_ms();
 #if E2_USB_SENSE_ENABLE
     gpio_set_direction(TCFG_E2_USB_SENSE_PORT, 1);

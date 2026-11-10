@@ -177,8 +177,10 @@ decision is the pure `kc_power_should_off` in `src/kc_power.c`, host-tested by `
 
 - **Powers off:** 180 s after advertising starts with no connection; 30 min after the last key event while connected (every
   key event re-arms it; it is dropped on disconnect and the 180 s rule takes over when advertising restarts). The SDK's
-  low-battery event (`POWER_EVENT_POWER_LOW`) also powers off, but not while USB power is present (it reads the sense pin first; it
-  then restarts the SDK's battery monitor, which the event had stopped).
+  low-battery event (`POWER_EVENT_POWER_LOW`) also powers off, but not while USB power is present (it reads the sense pin first). The SDK stops
+  its battery monitor before raising that event, so when the power-off is skipped the 1 s poll restarts the monitor once the sense
+  pin reads low again; while the cable stays in, the monitor stays stopped (restarting it at once would raise the event about every
+  140 ms).
 - **Power-off paths that do not consult the USB-power pin** (neither is ours to change, both are SDK/library code): the
   boot-time low-battery check `check_power_on_voltage` (`apps/hid/modules/power/app_power_manage.c`, called from `app_main`
   before the app and its USB start-up run, only when no charger is online): after 10 low readings it calls
@@ -198,7 +200,7 @@ decision is the pure `kc_power_should_off` in `src/kc_power.c`, host-tested by `
 Pin assignments (`board_ac632n_demo_cfg.h`, all **assumed, to be verified on the board**, see "Before flashing" 4 and 5):
 sense `IO_PORTA_07` (stock reads PA7 at start, see Observed), keys `IO_PORTB_07` and `IO_PORTA_00` (stock keys 1 and 2).
 
-Wake-up pull (observed in the linked power library): a wake-up pin with `pullup_down_enable` gets a pull-up when its edge is
+Wake-up pull (observed: read from the linked power library's listing during review): a wake-up pin with `pullup_down_enable` gets a pull-up when its edge is
 falling (the two keys) and a pull-down when it is rising (the sense pin), applied at start-up. To be verified on the board: that
 the pull is still in place in the powered-off state (`close_gpio` leaves the three pins alone at soft power-off), that the unit
 stays off with no key pressed and no cable, and that it wakes on each of the three.
@@ -207,7 +209,8 @@ Power-off request (`set_soft_poweroff` in `app_kindle_click.c`): the first reque
 low-battery event, do nothing) and it stops the 1 s poll. The power-off itself runs 300 ms later (`WAIT_DISCONN_TIME_MS`, to let
 the link close). A USB cable plugged in during those 300 ms gives no rising edge once the unit is off, so that callback reads the
 sense pin again and, if it is high, restarts the unit with `cpu_reset()` (`p33_soft_reset`) instead, so it boots with USB and BLE
-running. Not tested on a device.
+running. If the battery is flat, the boot-time low-battery check (one of the two paths above that do not consult the sense pin)
+can still power the unit off after that restart, before USB starts. Not tested on a device.
 
 ## BD19 library capabilities
 

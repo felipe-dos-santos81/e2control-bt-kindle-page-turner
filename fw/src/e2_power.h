@@ -15,6 +15,10 @@ void e2_power_stop(void);
 /* 1 when the USB-power sense pin reads high (always 0 without a sense pin). Reads the pin on every call. */
 u8   e2_power_usb_present(void);
 
+/* The app skipped a low-battery power-off because USB power is present, after the SDK stopped its battery monitor:
+ * the poll restarts the monitor once the sense pin is low again. */
+void e2_power_battery_monitor_stopped(void);
+
 void e2_power_on_adv_start(void);       /* BLE_ST_ADV: the 180 s count starts */
 void e2_power_on_connected(void);       /* BLE_ST_CONNECT: the 30 min count starts */
 void e2_power_on_disconnected(void);    /* BLE_ST_DISCONN: back to the 180 s rule */
