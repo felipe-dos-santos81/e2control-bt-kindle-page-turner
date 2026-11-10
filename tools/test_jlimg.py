@@ -9,6 +9,7 @@ def parts(image):
     with tempfile.TemporaryDirectory() as d:
         info = jlimg.unpack(image, d)
         assert all(r.get("crc_ok", True) for r in info["boot"] + info["app"]), "CRC mismatch"
+        assert {r["name"] for r in info["app"] if "crc_ok" in r} >= {"app.bin", "cfg_tool.bin"}, "app.bin/cfg_tool.bin not CRC-checked"
         head, plain = info["app"][0], pathlib.Path(d, "app_area.bin").read_bytes()
         assert head["name"] == "app_area_head" and jlimg.crc16(plain[32:head["size"]]) == head["crc"], "head data CRC"
         return (pathlib.Path(d, "app.bin").read_bytes(), pathlib.Path(d, "cfg_tool.bin").read_bytes())
@@ -52,6 +53,18 @@ def test_size_limit_boundary():
         assert "VM" in str(e)
     else:
         raise AssertionError("one byte over the VM limit accepted")
+
+def test_check_rejects_corrupt_app_bin():
+    base = IMG.read_bytes(); app, cfg = parts(base)
+    out = bytearray(jlimg.pack(base, app, None, 0x284C))
+    jlimg.check(bytes(out), base, 0x3000, 0x284C)                    # intact image passes
+    out[0x3000 + 0x120 + 0x100] ^= 1                                 # one bit inside app.bin (scrambling is bytewise, so it maps 1:1)
+    try:
+        jlimg.check(bytes(out), base, 0x3000, 0x284C)
+    except ValueError as e:
+        assert "app.bin" in str(e)
+    else:
+        raise AssertionError("corrupt app.bin passed check()")
 
 def test_full_device_dump_tail_untouched():
     import random

@@ -152,6 +152,10 @@ def check(image, base_image, base, key):
     for r in recs:
         if r["attr"] & 0x1F == 2 and crc16(plain[r["offset"]:r["offset"] + r["size"]]) != r["crc"]:
             raise ValueError(f"self-check failed: bad data CRC for {r['name']}")
+    for name in ("app.bin", "cfg_tool.bin"):  # pack patches these by name, so verify them by name too
+        r = next((r for r in recs if r["name"] == name), None)
+        if r is None or crc16(plain[r["offset"]:r["offset"] + r["size"]]) != r["crc"]:
+            raise ValueError(f"self-check failed: {name} missing or bad data CRC")
     if crc16(plain[32:recs[0]["size"]]) != recs[0]["crc"]:
         raise ValueError("self-check failed: bad data CRC for app_area_head")
 
