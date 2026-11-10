@@ -7,6 +7,7 @@
 #include "kc_keys.h"
 #include "kc_link.h"
 #include "kc_update_cmd.h"
+#include "kc_power.h"
 
 static void test_adv(void) {
     static const uint8_t want[] = { 0x02,0x01,0x06,  0x05,0xFF,0x71,0x01,0x04,0x43,  0x03,0x03,0x12,0x18 };
@@ -115,6 +116,28 @@ static void test_update_cmd(void) {
     assert(cmd_feed(&st, cmd, NULL) == 1);                        /* and does not leave the matcher stuck */
 }
 
+static void test_power(void) {
+    static const uint32_t times[] = { 0, 1, KC_POWER_ADV_OFF_MS - 1, KC_POWER_ADV_OFF_MS, KC_POWER_IDLE_OFF_MS - 1,
+                                      KC_POWER_IDLE_OFF_MS, KC_POWER_IDLE_OFF_MS * 3, UINT32_MAX };
+    assert(KC_POWER_ADV_OFF_MS == 180000 && KC_POWER_IDLE_OFF_MS == 1800000);
+    for (unsigned i = 0; i < sizeof times / sizeof *times; i++)           /* USB power: never off */
+        for (unsigned j = 0; j < sizeof times / sizeof *times; j++) {
+            assert(!kc_power_should_off(true, false, times[i], times[j]));
+            assert(!kc_power_should_off(true, true, times[i], times[j]));
+        }
+    assert(!kc_power_should_off(false, false, 0, 0));                     /* advertising, no connection */
+    assert(!kc_power_should_off(false, false, KC_POWER_ADV_OFF_MS - 1, 0));
+    assert(kc_power_should_off(false, false, KC_POWER_ADV_OFF_MS, 0));
+    assert(kc_power_should_off(false, false, UINT32_MAX, 0));
+    assert(!kc_power_should_off(false, true, 0, 0));                      /* connected, idle timer */
+    assert(!kc_power_should_off(false, true, 0, KC_POWER_IDLE_OFF_MS - 1));
+    assert(kc_power_should_off(false, true, 0, KC_POWER_IDLE_OFF_MS));
+    assert(kc_power_should_off(false, true, 0, UINT32_MAX));
+    assert(!kc_power_should_off(false, true, UINT32_MAX, 0));             /* connected ignores the adv time */
+    assert(!kc_power_should_off(false, true, KC_POWER_ADV_OFF_MS, KC_POWER_IDLE_OFF_MS - 1));
+    assert(!kc_power_should_off(false, false, KC_POWER_ADV_OFF_MS - 1, UINT32_MAX));   /* not connected ignores the key time */
+    assert(!kc_power_should_off(false, false, 0, KC_POWER_IDLE_OFF_MS));
+}
 int main(void) {
     test_adv();        puts("ok test_adv");
     test_pnp();        puts("ok test_pnp");
@@ -123,5 +146,6 @@ int main(void) {
     test_keys();       puts("ok test_keys");
     test_link();       puts("ok test_link");
     test_update_cmd(); puts("ok test_update_cmd");
+    test_power();      puts("ok test_power");
     return 0;
 }

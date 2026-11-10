@@ -70,7 +70,8 @@ PnP ID successfully on that build (AC636N has a different library) or reacts wel
 flags here follow the design ("encryption required, MITM not") and standard HOGP behaviour, untested on the Kindle.
 
 Board-dependent values come from the SDK board config (now `board_ac632n_demo_cfg.h`; the E2 board patch replaces it): key numbers
-(AD key values), wakeup pin (`port0` = the AD key pin), low-power mode, LED, battery measurement, `TCFG_HID_AUTO_SHUTDOWN_TIME`.
+(AD key values), soft-off wake-up pins (`TCFG_E2_WAKE_KEY1/2_PORT`, `TCFG_E2_USB_SENSE_PORT`, see "Power"), low-power mode, LED,
+battery measurement, `TCFG_HID_AUTO_SHUTDOWN_TIME` (0, unused).
 
 ## USB update entry
 
@@ -88,6 +89,11 @@ Before flashing the custom firmware onto the E2:
 2. On the device, still running the STOCK firmware, send `JUMPBOOT` (the vendor updater) and confirm the unit enters its
    USB HID updater. This proves that the boot code acts on the tag written at `0x800`, which is inferred, not read.
 3. After the first flash, check first that the custom firmware enumerates as `4c4a:4155` CDC.
+4. (iv) The USB-power sense pin `TCFG_E2_USB_SENSE_PORT` and the wake-up key pins `TCFG_E2_WAKE_KEY1_PORT` / `TCFG_E2_WAKE_KEY2_PORT`
+   are assumed (PA7, PB7, PA0, from the stock firmware): verify all three against the real board, and that `fw/build.sh`
+   lists the wake-up pins you expect ("E2 power: wake-up pins compiled in").
+5. (v) On the real board, confirm that the sense pin reads high when the USB cable is plugged in (and low when it is not),
+   before relying on it. If it is wrong, the unit either powers off while plugged in or never powers off.
 
 What is built (`patches/0004-usb-update-entry.patch`, `src/e2_update.c`, `src/kc_update_cmd.c`):
 
@@ -103,11 +109,7 @@ What is built (`patches/0004-usb-update-entry.patch`, `src/e2_update.c`, `src/kc
 - `e2_update_enter()`: `memcpy(0x800, "ubootZst", 8)`, `hw_mmu_disable()`, `cpu_reset()` (= `p33_soft_reset`).
 - `e2_update_boot_keys()` (first call in `app_start`, before BLE): sets both key pins to pull-up input, and if both read low
   for 3000 ms without a break, `e2_update_enter()`. Compiled in only when both pins are set and neither is the UART0 TX pin.
-- Advertising timeout (180 s without a connection): soft power-off, as stock, instead of stopping advertising.
-
-Power: like stock, the chip never enters power-down while it runs, so it draws its full idle current for as long as it is
-on, and it switches itself off 180 s after start or after losing the connection. While connected it stays on; stock also
-switches off after 30 min connected, which is not reproduced (see Unknown).
+- Power-off policy and wake-up sources: see "Power" below.
 
 Observed (static):
 
@@ -157,14 +159,42 @@ Inferred:
 
 Unknown / not reproduced:
 
-- Which events re-arm stock's 30-min connected power-off (key presses or only BT events): not established, so the 30-min
-  limit is not reproduced; ours stays on while connected.
-- The PA7 behaviour (BT off and no power-off on USB power): not reproduced, PA7's meaning is not established. Consequence: the
-  unit may switch itself off while plugged into a PC if it has had no BLE connection for 180 s; a key press starts it again
-  (wake-up pins are the E2 board patch's job).
+- Which events re-arm stock's 30-min connected power-off (key presses or only BT events): not established. Ours: key events
+  only, by owner decision (see "Power").
+- Stock's PA7 behaviour (BT off while USB power is present): not reproduced; ours keeps BLE running and only holds off the
+  power-off (see "Power").
 - Not reproduced from stock, on purpose: the `0xAA`-first-byte trigger, the `get`/`set` protocol, and stock `setup_arch`'s
   clearing of a `uboot\xa5ok` tag at `0x800` (`0x1E090D8`; it runs after `boot_info_init` `0x1E17E02` has rewritten byte
   `0x800`, so it rarely matches; effect unknown).
+
+## Power
+
+Like stock, the chip never enters power-down while it runs (the USB device is up), so it draws its full idle current for as
+long as it is on. The unit therefore switches itself off (soft power-off). Policy in `src/e2_power.c` (a 1 s poll; the
+decision is the pure `kc_power_should_off` in `src/kc_power.c`, host-tested by `test_power`):
+
+- **Powers off:** 180 s after advertising starts with no connection; 30 min after the last key event while connected (every
+  key event re-arms it; it is dropped on disconnect and the 180 s rule takes over when advertising restarts). The SDK's
+  low-battery event (`POWER_EVENT_POWER_LOW`) also powers off, with or without USB power.
+- **Keeps it on:** USB power present, i.e. the sense pin `TCFG_E2_USB_SENSE_PORT` reads high (active high, plain GPIO input with
+  internal pull-down), at boot and at any time after. A power-off that would be due re-arms instead: the 180 s / 30 min counts
+  restart when the cable is unplugged. BLE keeps running regardless of the pin.
+- **Wakes it (from soft power-off):** a press of either page key (`TCFG_E2_WAKE_KEY1_PORT`, `TCFG_E2_WAKE_KEY2_PORT`, falling
+  edge, pull-up) and plugging in USB power (rising edge on the sense pin). Wake-up table: `board_ac632n_demo.c` `wk_param`,
+  patched by `0004`. A key whose pin is the debug UART TX (`TCFG_UART0_TX_PORT`; PA0 in the demo config) is left out, as in
+  `e2_update.c`; the build log says which pins are in ("E2 power: wake-up pins compiled in").
+- **Press again after a wake-up:** the key press that wakes the unit is not sent as a page turn (no wake-key detection): the
+  first press wakes the remote, press again to turn the page. Owner decision.
+
+Pin assignments (`board_ac632n_demo_cfg.h`, all **assumed, to be verified on the board**, see "Before flashing" 4 and 5):
+sense `IO_PORTA_07` (stock reads PA7 at start, see Observed), keys `IO_PORTB_07` and `IO_PORTA_00` (stock keys 1 and 2).
+
+Not verified: which pull the prebuilt power library applies to a wake-up pin with `pullup_down_enable` (expected: pull-up for
+the falling-edge keys, pull-down for the rising-edge sense pin; `close_gpio` leaves the three pins alone at soft power-off).
+Check that the unit stays off with no key pressed and no cable, and wakes on each of the three.
+
+Not covered: a USB cable plugged in during the 300 ms between the decision to power off and the power-off itself gives no
+rising edge, so the unit stays off until the next key press or replug.
 
 ## BD19 library capabilities
 

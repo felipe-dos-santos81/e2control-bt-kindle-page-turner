@@ -22,6 +22,7 @@
 #include "kc_keys.h"
 #include "app_kindle_send.h"
 #include "e2_update.h"
+#include "e2_power.h"
 
 #if CONFIG_APP_KINDLE_CLICK
 
@@ -31,15 +32,11 @@
 #define LOG_INFO_ENABLE
 #include "debug.h"
 
-#define KC_ADV_TIMEOUT_MS   (180 * 1000)
-
-extern int  ble_hid_is_connected(void);
 extern void ble_module_enable(u8 en);
 extern void le_hogp_set_PNP_info(const u8 *info);
 extern void le_hogp_set_pair_allow(void);
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 
-static u16         adv_timer;
 static u16         holds[KEY_NUM_MAX];  /* consecutive HOLD events per SDK key number */
 static volatile u8 is_active;       /* 1: keep the system out of low power (soft power-off running) */
 #if TCFG_HID_AUTO_SHUTDOWN_TIME
@@ -53,28 +50,7 @@ static ble_init_cfg_t kc_ble_config = {
     .report_map   = kc_report_map,
 };
 
-/*------------------------------------------------------------------ advertising, bond */
-static void set_soft_poweroff(void);
-
-static void adv_timeout(void *priv)
-{
-    adv_timer = 0;
-    if (!ble_hid_is_connected() && ble_gatt_server_get_work_state() == BLE_ST_ADV) {
-        /* As stock (180 s without a connection -> power off): with the USB device up the chip never
-         * powers down (usb_dev_lp_target, as stock), so stopping advertising would not save power. */
-        log_info("adv timeout: power off");
-        set_soft_poweroff();
-    }
-}
-
-static void adv_timer_stop(void)
-{
-    if (adv_timer) {
-        sys_timeout_del(adv_timer);
-        adv_timer = 0;
-    }
-}
-
+/*------------------------------------------------------------------ bond */
 static void clear_bond(void)
 {
     log_info("clear bond");
@@ -102,10 +78,7 @@ static void key_event(u8 key, u8 event)
         }
     }
 
-    if (!ble_hid_is_connected() && ble_gatt_server_get_work_state() != BLE_ST_ADV) {
-        log_info("key: advertise again");
-        ble_gatt_server_adv_enable(1);
-    }
+    e2_power_on_key();              /* any key event re-arms the 30 min idle power-off */
 
     /* kc_key_action maps a multi-click event to KC_NONE: take the action from the CLICK event. */
     a = n ? kc_key_action(key, KEY_EVENT_CLICK, 0) : kc_key_action(key, event, hold_count);
@@ -121,14 +94,14 @@ static void ble_status_event(u8 status)
 {
     switch (status) {
     case BLE_ST_ADV:
-        adv_timer_stop();
-        adv_timer = sys_timeout_add(NULL, adv_timeout, KC_ADV_TIMEOUT_MS);
+        e2_power_on_adv_start();    /* 180 s without a connection: power off (e2_power.c) */
         break;
     case BLE_ST_CONNECT:
-        adv_timer_stop();
+        e2_power_on_connected();
         kc_send_link_down();        /* new link: not ready until encrypted */
         break;
     case BLE_ST_DISCONN:
+        e2_power_on_disconnected();
         kc_send_link_down();
         break;
     case BLE_PRIV_PAIR_ENCRYPTION_CHANGE:
@@ -168,6 +141,7 @@ static void power_event_to_user(void *priv)
     sys_event_notify(&e);
 }
 
+/* Only e2_power.c's poll (which reads the USB sense pin first) and the SDK's low-battery event call this. */
 static void set_soft_poweroff(void)
 {
     log_info("soft poweroff");
@@ -191,6 +165,7 @@ static void app_start(void)
 
     sys_key_event_enable();
     e2_update_usb_start();          /* USB CDC for the update command, at the same point as stock */
+    e2_power_init(set_soft_poweroff);
 #if TCFG_HID_AUTO_SHUTDOWN_TIME
     auto_shutdown_timer = sys_timeout_add((void *)POWER_EVENT_POWER_SOFTOFF, power_event_to_user, TCFG_HID_AUTO_SHUTDOWN_TIME * 1000);
 #endif

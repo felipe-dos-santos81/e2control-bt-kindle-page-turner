@@ -1,21 +1,104 @@
 diff --git a/apps/hid/board/bd19/Makefile b/apps/hid/board/bd19/Makefile
-index d82e1ea..df05279 100644
+index d82e1ea..4eb943e 100644
 --- a/apps/hid/board/bd19/Makefile
 +++ b/apps/hid/board/bd19/Makefile
-@@ -283,9 +283,11 @@ c_SRC_FILES := \
+@@ -283,9 +283,13 @@ c_SRC_FILES := \
  	../../../../apps/hid/examples/keypage/app_keypage.c \
  	../../../../apps/hid/kindle_click/app_kindle_click.c \
  	../../../../apps/hid/kindle_click/app_kindle_send.c \
++	../../../../apps/hid/kindle_click/e2_power.c \
 +	../../../../apps/hid/kindle_click/e2_update.c \
  	../../../../apps/hid/kindle_click/kc_keys.c \
  	../../../../apps/hid/kindle_click/kc_link.c \
++	../../../../apps/hid/kindle_click/kc_power.c \
  	../../../../apps/hid/kindle_click/kc_proto.c \
 +	../../../../apps/hid/kindle_click/kc_update_cmd.c \
  	../../../../apps/hid/examples/mouse_dual/app_mouse_dual.c \
  	../../../../apps/hid/examples/mouse_single/app_mouse.c \
  	../../../../apps/hid/examples/standard_keyboard/app_standard_keyboard.c \
+diff --git a/apps/hid/board/bd19/board_ac632n_demo.c b/apps/hid/board/bd19/board_ac632n_demo.c
+index ec5a57e..a180713 100644
+--- a/apps/hid/board/bd19/board_ac632n_demo.c
++++ b/apps/hid/board/bd19/board_ac632n_demo.c
+@@ -440,6 +440,17 @@ static void close_gpio(u8 is_softoff)
+     port_protect(port_group,TCFG_ADKEY_PORT);
+ #endif /* */
+ 
++    //E2: keep the wake-up pins as they are at soft-off (pull-up / pull-down), as the SDK does for the AD key pin
++#if E2_WAKE_KEY1_ENABLE
++    port_protect(port_group, TCFG_E2_WAKE_KEY1_PORT);
++#endif
++#if E2_WAKE_KEY2_ENABLE
++    port_protect(port_group, TCFG_E2_WAKE_KEY2_PORT);
++#endif
++#if E2_USB_SENSE_ENABLE
++    port_protect(port_group, TCFG_E2_USB_SENSE_PORT);
++#endif
++
+ #if TCFG_IOKEY_ENABLE
+     port_protect(port_group, TCFG_IOKEY_POWER_ONE_PORT);
+     port_protect(port_group, TCFG_IOKEY_PREV_ONE_PORT);
+@@ -508,18 +519,37 @@ static void close_gpio(u8 is_softoff)
+ }
+ 
+ /************************** PWR config ****************************/
++//E2: soft-off wake-up sources: the two page keys (falling edge, pull-up) and USB power (rising edge).
++//Pins from board config (TCFG_E2_WAKE_KEY1/2_PORT, TCFG_E2_USB_SENSE_PORT), assumed, to be verified on the board.
++#if E2_WAKE_KEY1_ENABLE
+ struct port_wakeup port0 = {
+ 	.pullup_down_enable = ENABLE,                            //配置I/O 内部上下拉是否使能
+ 	.edge               = FALLING_EDGE,                      //唤醒方式选择,可选：上升沿\下降沿
+     .both_edge          = 0,
+-
+-#if TCFG_ADKEY_ENABLE
+-	.iomap              = TCFG_ADKEY_PORT,                   //唤醒口选择
+-#else
+-	.iomap              = TCFG_IOKEY_POWER_ONE_PORT,         //唤醒口选择
++	.iomap              = TCFG_E2_WAKE_KEY1_PORT,            //唤醒口选择
++    .filter             = PORT_FLT_2ms,
++};
+ #endif
++
++#if E2_WAKE_KEY2_ENABLE
++struct port_wakeup port_key2 = {
++	.pullup_down_enable = ENABLE,
++	.edge               = FALLING_EDGE,
++    .both_edge          = 0,
++	.iomap              = TCFG_E2_WAKE_KEY2_PORT,
+     .filter             = PORT_FLT_2ms,
+ };
++#endif
++
++#if E2_USB_SENSE_ENABLE
++struct port_wakeup port_usb = {
++	.pullup_down_enable = ENABLE,
++	.edge               = RISING_EDGE,
++    .both_edge          = 0,
++	.iomap              = TCFG_E2_USB_SENSE_PORT,
++    .filter             = PORT_FLT_16ms,
++};
++#endif
+ 
+ #if TCFG_TEST_BOX_ENABLE
+ struct port_wakeup port1 = {
+@@ -556,8 +586,14 @@ struct port_wakeup ldoin_port = {
+ 
+ const struct wakeup_param wk_param = {
+ 
+-#if TCFG_ADKEY_ENABLE || TCFG_IOKEY_ENABLE
++#if E2_WAKE_KEY1_ENABLE
+ 	.port[1]    = &port0,
++#endif
++#if E2_WAKE_KEY2_ENABLE
++	.port[3]    = &port_key2,
++#endif
++#if E2_USB_SENSE_ENABLE
++	.port[4]    = &port_usb,
+ #endif
+ 	/* .sub        = &sub_wkup, */
+ 	/* .charge     = &charge_wkup, */
 diff --git a/apps/hid/board/bd19/board_ac632n_demo_cfg.h b/apps/hid/board/bd19/board_ac632n_demo_cfg.h
-index da1b28e..b8209d2 100644
+index da1b28e..8665345 100644
 --- a/apps/hid/board/bd19/board_ac632n_demo_cfg.h
 +++ b/apps/hid/board/bd19/board_ac632n_demo_cfg.h
 @@ -29,13 +29,20 @@
@@ -41,7 +124,7 @@ index da1b28e..b8209d2 100644
  //*********************************************************************************//
  //                                 IIC配置                                        //
  //*********************************************************************************//
-@@ -106,6 +113,11 @@
+@@ -106,6 +113,24 @@
  //                                 iokey 配置                                      //
  //*********************************************************************************//
  #define TCFG_IOKEY_ENABLE					DISABLE_THIS_MOUDLE //是否使能IO按键
@@ -50,6 +133,19 @@ index da1b28e..b8209d2 100644
 +//the debug UART0 TX (TCFG_UART0_TX_PORT above): the build log says which.
 +#define TCFG_E2_UPDATE_KEY1_PORT            IO_PORTB_07
 +#define TCFG_E2_UPDATE_KEY2_PORT            IO_PORTA_00
++//E2 power (fw/src/e2_power.c, board_ac632n_demo.c wk_param). ALL THREE PINS ARE ASSUMED, to be verified on the board.
++//USB power sense: plain GPIO input, active high (stock reads PA7 at start). While high the unit never powers off,
++//and a rising edge wakes it from soft-off.
++#define TCFG_E2_USB_SENSE_PORT              IO_PORTA_07
++//Soft-off wake-up keys (the unit's two page keys, to GND): falling edge, pull-up. Not a wake-up source while the pin
++//is the debug UART0 TX (PA0 in this demo config): the build log says which wake-up pins are compiled in.
++#define TCFG_E2_WAKE_KEY1_PORT              IO_PORTB_07
++#define TCFG_E2_WAKE_KEY2_PORT              IO_PORTA_00
++#define E2_USB_SENSE_ENABLE                 (TCFG_E2_USB_SENSE_PORT != NO_CONFIG_PORT)
++#define E2_WAKE_KEY1_ENABLE                 ((TCFG_E2_WAKE_KEY1_PORT != NO_CONFIG_PORT) && \
++                                             !(TCFG_UART0_ENABLE && (TCFG_UART0_TX_PORT == TCFG_E2_WAKE_KEY1_PORT)))
++#define E2_WAKE_KEY2_ENABLE                 ((TCFG_E2_WAKE_KEY2_PORT != NO_CONFIG_PORT) && \
++                                             !(TCFG_UART0_ENABLE && (TCFG_UART0_TX_PORT == TCFG_E2_WAKE_KEY2_PORT)))
  
  #define TCFG_IOKEY_POWER_CONNECT_WAY		ONE_PORT_TO_LOW    //按键一端接低电平一端接IO
  

@@ -64,3 +64,6 @@ echo "app.bin: $size bytes, starts $head8, code at 0x$addr"
 # The SDK compiles with -w, so e2_update.c cannot report this itself (see fw/README.md "USB update entry").
 grep -q '^e2_key_entry_held:' "$TOOLS/sdk.lst" && echo "E2 update: key entry compiled in (keys held 3 s at power-on)" \
   || echo "E2 update: key entry NOT compiled in; the USB command JUMPBOOT is the only way into update mode"
+# Wake-up pins (board_ac632n_demo.c wk_param): the port tables are data symbols, linked only when their pin is enabled.
+w=""; for s in port0:key1 port_key2:key2 port_usb:usb-sense; do grep -q "^${s%%:*}:" "$TOOLS/sdk.lst" && w="$w ${s##*:}"; done
+echo "E2 power: wake-up pins compiled in:${w:- none} (key pins that are the debug UART TX are left out)"
