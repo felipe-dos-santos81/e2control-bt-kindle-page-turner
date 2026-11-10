@@ -98,6 +98,8 @@ These replace the hardware points above where they differ.
 - **Order:** board facts (open the case) come before the first custom flash, because the firmware must use the E2's real pins. The first custom flash is followed at once by a second flash from the custom firmware, to prove the update path.
 - **Pairing risk:** the BD19 Bluetooth library has no LE Secure Connections (found in plan Task 9). The firmware offers legacy Just Works pairing. Whether the Kindle accepts it is unknown until the first pairing attempt on the E2.
 
+- **Power behavior (replaces "A button press may wake the remote" above).** To keep the USB update path, USB stays started, and then the chip cannot nap. So the remote follows the stock power model: it switches itself off 180 s after start or after losing the connection if no connection follows, and after 30 minutes without a key press while connected. It never switches off while USB power is present. A key press switches it on again; that press is not sent to the Kindle. The owner accepted "first press wakes the remote, press again to turn the page".
+
 ## How it gets built
 
 All of this section is my call; the owner handed these choices over.
