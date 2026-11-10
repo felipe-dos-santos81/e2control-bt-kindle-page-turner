@@ -132,7 +132,7 @@ static void power_off_or_restart(void *priv)
 }
 
 /* The only way into a power-off, idempotent: the first request wins, the 1 s power poll is stopped whichever
- * path asked. Callers: e2_power.c's poll (reads the USB sense pin first) and low_battery_poweroff below. */
+ * path asked. Caller: e2_power.c's poll (reads the USB sense pin first; not started while TCFG_E2_SELF_POWER_OFF is 0). */
 static void set_soft_poweroff(void)
 {
     if (is_active) {
@@ -143,15 +143,6 @@ static void set_soft_poweroff(void)
     e2_power_stop();
     btstack_ble_exit(0);
     sys_timeout_add(NULL, power_off_or_restart, WAIT_DISCONN_TIME_MS);   /* let the link close first */
-}
-
-/* The SDK's low-battery event (app_power_event_handler, POWER_EVENT_POWER_LOW) ends here, and is ignored. The SDK
- * reads the chip's own VBAT pin; the stock E2 firmware does not use that reading (it measures the battery on PA8,
- * power-off below 2.80 V). Until the E2's battery reading is verified, nothing powers the unit off on it. The SDK
- * stopped its battery monitor before calling us; it stays stopped. */
-static void low_battery_poweroff(void)
-{
-    log_info("low battery event ignored");
 }
 
 static void app_start(void)
@@ -203,10 +194,7 @@ static int event_handler(struct application *app, struct sys_event *event)
         }
         return 0;
 
-    case SYS_DEVICE_EVENT:
-        if ((u32)event->arg == DEVICE_EVENT_FROM_POWER) {
-            return app_power_event_handler(&event->u.dev, low_battery_poweroff);
-        }
+    case SYS_DEVICE_EVENT:      /* no power events: the SDK's battery detect is off on this board (TCFG_SYS_LVD_EN 0) */
 #if TCFG_CHARGE_ENABLE
         if ((u32)event->arg == DEVICE_EVENT_FROM_CHARGE) {
             app_charge_event_handler(&event->u.dev);

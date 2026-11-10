@@ -1,5 +1,5 @@
 --- a/apps/hid/board/bd19/board_ac632n_demo_cfg.h	2026-11-10 18:11:53.006498747 -0300
-+++ b/apps/hid/board/bd19/board_ac632n_demo_cfg.h	2026-11-10 18:46:23.087892847 -0300
++++ b/apps/hid/board/bd19/board_ac632n_demo_cfg.h	2026-11-10 19:17:46.654667479 -0300
 @@ -21,7 +21,7 @@
  //*********************************************************************************//
  //                                 UART配置                                        //
@@ -25,8 +25,22 @@
  //USB power sense: plain GPIO input, active high (stock reads PA7 at start). While high the unit never powers off,
  //and a rising edge wakes it from soft-off.
  #define TCFG_E2_USB_SENSE_PORT              IO_PORTA_07
-@@ -134,21 +134,21 @@
+@@ -132,23 +132,35 @@
+ #define E2_WAKE_KEY2_ENABLE                 ((TCFG_E2_WAKE_KEY2_PORT != NO_CONFIG_PORT) && \
+                                              !(TCFG_UART0_ENABLE && (TCFG_UART0_TX_PORT == TCFG_E2_WAKE_KEY2_PORT)))
  
++//E2 pins read only for the status line (fw/src/e2_update.c), from the stock firmware, not measured on the board:
++//battery through a divider (stock: adc_get_voltage(AD_CH_PA8) * 2), the side selector (stock AD key input),
++//charge status (stock reads it with a pull-up).
++#define TCFG_E2_BATTERY_PORT                IO_PORTA_08
++#define TCFG_E2_BATTERY_AD_CH               AD_CH_PA8
++#define TCFG_E2_SELECTOR_PORT               IO_PORTA_01
++#define TCFG_E2_SELECTOR_AD_CH              AD_CH_PA1
++#define TCFG_E2_CHARGE_PORT                 IO_PORTB_06
++//E2 self power-off (fw/src/e2_power.c: 180 s unconnected, 30 min idle). 0 until wake-up from soft-off by key and
++//by USB power has been seen on the unit: a unit that switches off and does not wake cannot be reached over USB.
++#define TCFG_E2_SELF_POWER_OFF              0
++
  #define TCFG_IOKEY_POWER_CONNECT_WAY		ONE_PORT_TO_LOW    //按键一端接低电平一端接IO
  
 -#define TCFG_IOKEY_POWER_ONE_PORT			IO_PORTB_01        //IO按键端口
@@ -51,7 +65,7 @@
  #define TCFG_ADKEY_PORT                     IO_PORTB_01         //AD按键端口(需要注意选择的IO口是否支持AD功能)
  /*AD通道选择，需要和AD按键的端口相对应:
      AD_CH_PA1    AD_CH_PA3    AD_CH_PA4    AD_CH_PA5
-@@ -300,9 +300,9 @@
+@@ -300,9 +312,9 @@
  //*********************************************************************************//
  //                                  LED 配置                                       //
  //*********************************************************************************//
@@ -63,6 +77,22 @@
  
  //*********************************************************************************//
  //                                  时钟配置                                       //
+@@ -349,11 +361,10 @@
+ //                                  系统配置                                         //
+ //*********************************************************************************//
+ #define TCFG_AUTO_SHUT_DOWN_TIME		          0   //没有蓝牙连接自动关机时间
+-#if (TCFG_LOWPOWER_POWER_SEL == PWR_DCDC15)
+-#define TCFG_SYS_LVD_EN						      1   //dcdc模式电压低于2.4v的时候切为LDO模式，需要开启电量检测
+-#else
+-#define TCFG_SYS_LVD_EN						      1   //电量检测使能
+-#endif
++//E2: the SDK's battery detect reads the chip's own VBAT pin. The stock E2 firmware does not use that reading (it
++//measures the battery on PA8, power-off below 2.80 V). With it on, the SDK's 3.30 V check at start switched the unit
++//off before USB started (docs/update-path.md, "Lockout"). Off: no check at start, no battery monitor, no low-battery event.
++#define TCFG_SYS_LVD_EN						      0
+ #define TCFG_POWER_ON_NEED_KEY				      0	  //是否需要按按键开机配置
+ #define TCFG_HID_AUTO_SHUTDOWN_TIME              (0 * 60)      //HID无操作自动关机(单位：秒)
+ 
 --- a/apps/hid/board/bd19/board_ac632n_demo.c	2026-11-10 18:11:53.008418381 -0300
 +++ b/apps/hid/board/bd19/board_ac632n_demo.c	2026-11-10 18:18:36.703492991 -0300
 @@ -543,7 +543,7 @@
@@ -74,19 +104,3 @@
  	.edge               = RISING_EDGE,
      .both_edge          = 0,
  	.iomap              = TCFG_E2_USB_SENSE_PORT,
---- a/apps/hid/app_main.c	2026-11-10 18:46:22.954455338 -0300
-+++ b/apps/hid/app_main.c	2026-11-10 18:46:23.088220140 -0300
-@@ -126,7 +126,12 @@
-         vbat_check_init();
- #endif
-     } else {
--        check_power_on_voltage();
-+        //E2: no power-off at start on the chip's own VBAT reading. The stock E2 firmware does not use it: it measures
-+        //the battery on PA8 and powers off below 2.80 V. With the SDK's 3.30 V limit the unit did not start after
-+        //a power-off (docs/update-path.md).
-+#if(TCFG_SYS_LVD_EN == 1)
-+        vbat_check_init();
-+#endif
-     }
- 
- #if TCFG_POWER_ON_NEED_KEY

@@ -82,7 +82,7 @@ Facts that matter:
 - **Order of a flash:** erase block 0, write the other changed blocks, write block 0 without its first 32 bytes, then those 32 bytes, then compare all CRCs.
 - **Entry into update mode at power-on** (inferred from the boot code): the tag `ubootZst` at RAM `0x800`, or an app-area head whose CRC check fails. So an interrupted flash comes back in update mode. An app with valid CRCs that does not run is not caught by this.
 
-`tools/e2boot.py` implements `info`, `verify`, `flash`, `reboot` and `enter`. `tools/test_e2boot.py` tests it against a model of the handlers above.
+`tools/e2boot.py` implements `info`, `verify`, `flash`, `reboot`, `enter` and `rescue` (wait for the unit, then flash). `flash` first compares the boot area's CRCs with the image and refuses an image whose boot area differs. `tools/test_e2boot.py` tests it against a model of the handlers above.
 
 ## Observed with `tools/e2boot.py` (2026-11-10)
 
@@ -108,11 +108,12 @@ Only `enter`, `info`, `verify` (init and CRC commands) and `reboot` were sent. N
 
 `e2boot.py flash fw/out/e2-kindle.bin --yes` (SHA-256 `e6459768…cac5faa`, built on the `zoom-phone-tablet` image), with the owner's go-ahead, after the owner confirmed that the restored stock firmware paired and all three buttons worked.
 
+- Items 4 and 5 of the "Before flashing" checklist in `fw/README.md` (pins measured on the board) were open. The owner was told and chose to go ahead.
 - 41 of 42 blocks written; 42 of 42 match afterwards.
 - After `reboot` the custom firmware enumerates as USB serial `4c4a:4155`.
 - **The update path works from the custom firmware:** `e2boot.py enter` (its `JUMPBOOT` handler) put the unit into the HID updater, `verify` matched 42 of 42, `reboot` brought the firmware back.
 - Not yet tested: Bluetooth advertising, pairing with the Kindle, the buttons, power-off and wake-up.
-- To return to stock: `e2boot.py enter PORT`, then `e2boot.py flash firmware/e2control-zoom-phone-tablet.bin --yes`, then `e2boot.py reboot`.
+- To return to stock: `e2boot.py enter PORT --yes`, then `e2boot.py flash firmware/e2control-zoom-phone-tablet.bin --yes`, then `e2boot.py reboot --yes`.
 
 ## Lockout after the first custom flash (2026-11-10, open)
 
@@ -129,9 +130,9 @@ Inferred cause (not proven on the unit):
 - Not explained: why the two starts by reset passed the check.
 - Other candidate: the unit is in soft power-off and its wake-up does not work. Wake-up was never tested.
 
-Fix in the sources (not on the unit): no VBAT check at start, low-battery events ignored, self power-off disabled (`E2_SELF_POWER_OFF 0` in `fw/src/e2_power.c`) until wake-up is proven, LED on PB5 driven, and a status line on the serial port (send `?`).
+Fix in the sources (not on the unit): the SDK's battery detect is off (`TCFG_SYS_LVD_EN 0`: no VBAT check at start, no low-battery event), self power-off is off (`TCFG_E2_SELF_POWER_OFF 0`) until wake-up is proven, LED on PB5 driven, and a status line on the serial port (send `?`).
 
-Ways back in: a start that passes the check (then `e2boot.py enter` at once), or the mask ROM's USB download mode, which needs a forced-download tool.
+Ways back in: a start that passes the check (then `e2boot.py enter PORT --yes` at once, or `make fw-rescue yes=1` waiting for it), or the mask ROM's USB download mode, which needs a forced-download tool.
 
 Forced download, read from this chip's ROM listing (`sdk/rom.lst`, `usb_key_isr` at `0x106350`, `check_key_type` at `0x10563a`):
 

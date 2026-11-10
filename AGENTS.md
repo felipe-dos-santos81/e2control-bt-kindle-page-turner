@@ -11,11 +11,12 @@ Two linked projects for one device, the HANLINYUE "E2 Control" Bluetooth page tu
 
 ## Hard rules for the physical device
 
-- It is the owner's only unit and there is **no recovery tool**. A bad flash can be final.
+- It is the owner's only unit and there is **no recovery tool**. A bad flash can be final, and so can a firmware that is written correctly but does not start.
 - Every action that writes to the device, or changes its state (for example the `JUMPBOOT` command), needs the owner's explicit go-ahead at that moment. Read-only `get` queries were approved once; ask again in a new session.
 - Never flash an image built for another chip. The vendor's Kindle builds are for AC636N.
-- Do not flash the custom firmware until every item of the "Before flashing" checklist in `fw/README.md` holds. As of 2026-11-10 the pins come from the stock firmware and are not measured on the board; no write has been made to the device yet.
-- Device state as of 2026-11-10: **the custom firmware is on the unit and the unit is not reachable**: it has not started since it was switched off (see "Lockout" in `docs/update-path.md`). The first flash and the update path from it worked before that. Before that: stock firmware `V0.04`. `get` queries and one `JUMPBOOT` were run on it (results in `docs/update-path.md`). It runs the vendor's `zoom-phone-tablet` image (proved by block CRCs with `tools/e2boot.py verify`; one block before `VM` differs). `tools/e2boot.py reboot` leaves update mode. Check which mode it is in before assuming a serial port exists.
+- Do not flash the custom firmware until every item of the "Before flashing" checklist in `fw/README.md` holds. The first custom flash (2026-11-10) went ahead on the owner's decision with items 4 and 5 open: the pins come from the stock firmware and are not measured on the board.
+- Device state as of 2026-11-10: **the custom firmware is on the unit and the unit is not reachable.** It has not started since it was switched off: no serial port, no updater, no Bluetooth advertising. `docs/update-path.md` has the record ("Lockout") and the ways back in. Its stock image was the vendor's `zoom-phone-tablet` (proved by block CRCs). Check which mode the unit is in before assuming a serial port exists.
+- `tools/e2boot.py enter`, `flash`, `rescue` and `reboot`, and `make fw-rescue`, change the device: each run needs that go-ahead, and the tool refuses them without `--yes`. `info` and `verify` only read, but need the unit in update mode.
 - Serial protocol: JSON at 460800 baud on `/dev/cu.usbmodem*` (on macOS set the speed with the `IOSSIOSPEED` ioctl; `pyserial` is not installed). The stock firmware sometimes drops the first command after the port opens, so send a `get` first.
 - Firmware images (`firmware/*.bin`), flash backups (`backup/`) and vendor `.ufw` files stay out of git; only hashes and manifests are committed.
 
@@ -32,13 +33,15 @@ make ghidra-import variant=kobo       # analyze one variant into ghidra/project/
 # own firmware
 make test                             # fw-test + tools-test
 make fw-test                          # host tests for the pure C logic (seconds)
-make tools-test                       # image-packer tests (needs firmware/*.bin)
+make tools-test                       # image-packer tests (needs firmware/*.bin) and updater-client tests
 make fw-build                         # Docker: Jieli toolchain container -> fw/out/app.bin (~20 s after the first image build)
 make fw-image base=<flash image>      # put fw/out/app.bin into an existing image, everything else byte-identical
+make fw-rescue yes=1                  # WRITES TO THE DEVICE: wait for the E2 on USB, flash fw/out/e2-kindle.bin, reboot
+python3 -I tools/e2boot.py            # client for the unit's USB updater: enter, info, verify, flash, reboot, rescue
 ```
 
 - Single tests: there is no test runner. `fw/tests/test_kc.c` has one `test_*` function per unit, called from `main`; `tools/test_jlimg.py` runs every `test_*` function. To run one, call it alone from `main` / the `__main__` block temporarily, or run the file and read the `ok <name>` lines.
-- Run project Python with `python3 -I` (the Makefile does). Tools are stdlib-only, single-file scripts.
+- Run project Python with `python3 -I` (the Makefile does). Tools are stdlib-only, single-file scripts. One exception: `tools/e2boot.py` loads the `hidapi` library through `ctypes` (`brew install hidapi`).
 - In this user's shell `cc` is aliased to something else. In scripts and one-off commands use `$(CC)` (Makefile) or `/usr/bin/cc`.
 - Query the Ghidra project headless and read-only, one process at a time:
   `$GHIDRA_HOME/support/analyzeHeadless ghidra/project E2 -process <variant>.bin -noanalysis -readOnly -scriptPath ghidra/scripts -postScript Xrefs.java <hexaddr>`
@@ -49,6 +52,10 @@ make fw-image base=<flash image>      # put fw/out/app.bin into an existing imag
 ### Image format and tooling (`tools/jlimg.py`)
 
 `jl_isd.bin` = header + boot table (scrambled with key `0xFFFF`) + `uboot.boot` + app area at flash `0x3000` (32-byte blocks scrambled with `chip_key ^ (offset >> 2)`, chip key `0x284c`). The app area holds `app.bin` (code, loaded at `0x1E00120`) and `cfg_tool.bin`. `unpack` splits and checks every CRC; `pack` replaces only `app.bin`/`cfg_tool.bin` inside a base image and self-checks the result. The vendor image files end where the `VM` partition starts; a real device dump is longer, and `pack` copies that tail unchanged. Memory map: RAM `0x0–0xFFFF` (startup copies `.data` and RAM code there), mask ROM `0x100000`, flash `0x1E00000`.
+
+### Updater client (`tools/e2boot.py`)
+
+The unit's boot code holds a USB HID updater, reached with `JUMPBOOT` on the serial port. It can erase, write and report a CRC per 4 KB block; it cannot read flash. `e2boot.py` speaks that protocol (packet layout and commands: `docs/update-path.md`). `flash` writes only from the app area's start, refuses an image whose boot area differs from the device's, erases block 0 first and writes its first 32 bytes last, so an interrupted run comes back in update mode. `tools/test_e2boot.py` runs it against a model of the boot code's handlers; keep that model in step with `docs/update-path.md`.
 
 ### Ghidra side (`ghidra/`)
 
@@ -64,7 +71,9 @@ An **overlay on Jieli's public SDK** (`Jieli-Tech/fw-AC63_BT_SDK`, pinned commit
   - `fw/src/app_*.c`, `fw/src/e2_*.c` — SDK-bound glue: BLE events and keys (`app_kindle_click`), report sending (`app_kindle_send`), USB update entry (`e2_update`), power policy (`e2_power`). They only compile inside the container; editor diagnostics about missing SDK headers are noise.
 - The GATT table is generated by `fw/att_table.py` (`gen` writes the SDK profile header used in patch 0003, `dump fw/out/app.bin` reads the table back from a built image). The Kindle identifies the remote by exact bytes (manufacturer data `71 01 04 43`, PnP ID `01 71 01 43 04 00 01`, one keyboard+consumer input report with ID 1); do not change them without the spec.
 - **Constraints that shape the code** (reasons are in the spec and `fw/README.md`):
-  - The update entry must survive: USB CDC stays started as in the stock firmware, and `JUMPBOOT` on the serial port resets into the boot-area updater. With USB started the chip cannot sleep, so the app powers the unit off instead (180 s unconnected, 30 min idle while connected), never while the USB-power sense pin is high.
+  - The update entry must survive: USB CDC stays started as in the stock firmware, and `JUMPBOOT` on the serial port resets into the boot-area updater. With USB started the chip cannot sleep, so the app is designed to power the unit off instead (180 s unconnected, 30 min idle while connected), never while the USB-power sense pin is high. That policy is off (`TCFG_E2_SELF_POWER_OFF 0` in the board config, `patches/0005`) until wake-up from power-off is proven on the unit. The SDK's battery detect is off too (`TCFG_SYS_LVD_EN 0`): it reads the chip's own VBAT pin, which the stock firmware does not use on this board.
+  - **Nothing may power the unit off, or block, before `e2_update_usb_start()` runs.** The update command is the only way back in. The SDK's battery check at start did exactly that and locked the unit out; `TCFG_SYS_LVD_EN 0` switches it off. Treat every SDK default that can call `power_set_soft_poweroff` as suspect until it is seen working on the unit.
+  - Send `?` on the serial port for one status line (`vbat`, `pa8`, `pa1`, `usb`, `pb6`, `up`): use it to measure a board fact before the code depends on it.
   - The BD19 Bluetooth library has no LE Secure Connections; pairing is legacy Just Works. Whether the Kindle accepts it is untested.
   - Board pins (keys, USB-power sense, wake-up) are read from the stock firmware, held in board-config macros, not measured on the board.
 

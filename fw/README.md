@@ -70,7 +70,7 @@ that: the Kindle starts pairing on its own, and the extra reports do not stop it
 PnP ID successfully on that build (AC636N has a different library) or reacts well to Insufficient Encryption; the encryption
 flags here follow the design ("encryption required, MITM not") and standard HOGP behaviour, untested on the Kindle.
 
-Board-dependent values come from the SDK board config (now `board_ac632n_demo_cfg.h`; the E2 board patch replaces it): key numbers
+Board-dependent values come from the SDK board config (`board_ac632n_demo_cfg.h`, set for the E2 by `patches/0005-e2-board.patch`): key numbers
 (AD key values), soft-off wake-up pins (`TCFG_E2_WAKE_KEY1/2_PORT`, `TCFG_E2_USB_SENSE_PORT`, see "Power"), low-power mode, LED,
 battery measurement. The SDK's `TCFG_HID_AUTO_SHUTDOWN_TIME` idle power-off is not used (no code for it in the app, so a board config cannot
 switch on a second, unguarded power-off).
@@ -78,10 +78,10 @@ switch on a second, unguarded power-off).
 ## USB update entry
 
 The vendor updater can only reflash the E2 if the running app takes it into the boot area's USB HID updater
-(`uboot.boot`, kept unchanged by `jlimg.py pack`). This firmware keeps that entry. Nothing below has run on a device.
+(`uboot.boot`, kept unchanged by `jlimg.py pack`). This firmware keeps that entry. On the device (2026-11-10): the `JUMPBOOT` command worked from this firmware once; the key entry is untested.
 Addresses are in the zoom-phone-tablet `app.bin` (load `0x1E00120`), Ghidra project `ghidra/project/E2`.
 
-**In this build (demo board config) the key entry is NOT compiled in: the USB command is the only way into update mode.**
+**With the E2 board config the key entry is compiled in** (keys 1 and 2 held for 3 s at start). With the SDK's demo config it was not, because PA0 was the debug UART TX.
 `fw/build.sh` prints which on its last line ("E2 update: key entry compiled in" / "NOT compiled in").
 
 ## E2 board
@@ -103,15 +103,23 @@ The unit has three push buttons and a side selector (Up/Down, Left/Right, Volume
 Ours: the three IO keys as stock, no debug UART (PA0 is key 2), wake-up on keys 1 and 2 and on PA7.
 The LED is driven as stock does (SDK `pwm_led`): slow flash while advertising, one flash every 5 s while connected.
 Not used by our firmware: the AD input, wake-up on key 3 and on PA1. The charge-status pin and the two analog pins are
-only read for the status line (send `?` on the serial port: `vbat`, `pa8`, `pa1`, `pa7`, `pb6`, `up`). So the selector does
+only read for the status line (send `?` on the serial port: `vbat`, `pa8`, `pa1`, `usb`, `pb6`, `up`). So the selector does
 nothing, including its Off position (unless Off cuts the battery in hardware, which is unknown). The AD key is off because
 a resting selector would read as a key held forever.
 
-**State of the power policy (2026-11-10):** after the lockout (`docs/update-path.md`), the build never powers itself off:
-`E2_SELF_POWER_OFF` is 0 in `src/e2_power.c`, the SDK's battery check at start is removed (`patches/0005`, `app_main.c`), and
-the SDK's low-battery event is ignored. The "Power" section below describes the policy that is compiled out.
+**State of the power policy (2026-11-10):** after the lockout (`docs/update-path.md`), the build never powers itself off.
+Two switches in the board config (`patches/0005`) hold that: `TCFG_E2_SELF_POWER_OFF 0` (the 1 s power poll is not started)
+and `TCFG_SYS_LVD_EN 0` (the SDK's battery detect: no check at start, no battery monitor, no low-battery event). The "Power"
+section below describes the policy that is switched off.
 
-Before flashing the custom firmware onto the E2:
+**Known gaps against the design** (`docs/superpowers/specs/2026-11-09-kindle-click-firmware-design.md`):
+
+- No self power-off, so the battery drains while the unit is on and the Kindle sleeps.
+- The battery level sent to the Kindle is the SDK's fixed default (88 %): no battery reading is wired to the Bluetooth service. Stock measures the battery on PA8.
+- The backup is the vendor image the unit was proven to hold (`firmware/SHA256SUMS`, `e2control-zoom-phone-tablet.bin`), not a dump. The restore proof replaced one block whose content could not be read (`docs/update-path.md`).
+- The status line is outside the design, which keeps only the update command of the USB protocol. It is a test aid; remove it when the board facts are measured.
+
+Before flashing the custom firmware onto the E2 (the first flash, 2026-11-10, went ahead on the owner's decision with items 4 and 5 open):
 
 1. The build log says "key entry compiled in" for the real board config, and PA0 is not the debug UART TX
    (`TCFG_UART0_TX_PORT`; on the demo config it is, which is why the key entry is off).
@@ -204,17 +212,12 @@ decision is the pure `kc_power_should_off` in `src/kc_power.c`, host-tested by `
 
 - **Powers off:** 180 s after advertising starts with no connection; 30 min after the last key event while connected (every
   key event re-arms it; it is dropped on disconnect and the 180 s rule takes over when advertising restarts). The SDK's
-  low-battery event (`POWER_EVENT_POWER_LOW`) also powers off, but not while USB power is present (it reads the sense pin first). The SDK stops
-  its battery monitor before raising that event, so when the power-off is skipped the 1 s poll restarts the monitor once the sense
-  pin reads low again; while the cable stays in, the monitor stays stopped (restarting it at once would raise the event about every
-  140 ms).
-- **Power-off paths that do not consult the USB-power pin** (neither is ours to change, both are SDK/library code): the
-  boot-time low-battery check `check_power_on_voltage` (`apps/hid/modules/power/app_power_manage.c`, called from `app_main`
-  before the app and its USB start-up run, only when no charger is online): after 10 low readings it calls
-  `power_set_soft_poweroff`; and a library-internal one: `cpu.a` (`rtc.c.o`, `p2m_rtc_cmd_trim`, a P11 message handler)
-  calls `power_set_soft_poweroff` (seen in the IR; its trigger is not traced).
-- **Keeps it on:** USB power present, i.e. the sense pin `TCFG_E2_USB_SENSE_PORT` reads high (active high, plain GPIO input with
-  internal pull-down), at boot and at any time after. While it is high, both time references (the 180 s unconnected-since
+  low-battery event does not occur: its battery detect is off (`TCFG_SYS_LVD_EN 0`), because it reads the chip's own VBAT pin.
+- **Power-off paths that do not consult the USB-power pin:** the SDK's boot-time check `check_power_on_voltage` is compiled
+  out (`TCFG_SYS_LVD_EN 0`; it is the likely cause of the lockout). One library-internal path remains: `cpu.a` (`rtc.c.o`,
+  `p2m_rtc_cmd_trim`, a P11 message handler) calls `power_set_soft_poweroff` (seen in the IR; its trigger is not traced).
+- **Keeps it on:** USB power present, i.e. the sense pin `TCFG_E2_USB_SENSE_PORT` reads high (active high, plain GPIO input, no
+  internal pull, as stock), at boot and at any time after. While it is high, both time references (the 180 s unconnected-since
   time and the 30 min last-key time) restart on every 1 s poll, so the counts begin when the cable is unplugged. BLE keeps
   running regardless of the pin.
 - **Wakes it (from soft power-off):** a press of either page key (`TCFG_E2_WAKE_KEY1_PORT`, `TCFG_E2_WAKE_KEY2_PORT`, falling
@@ -224,11 +227,11 @@ decision is the pure `kc_power_should_off` in `src/kc_power.c`, host-tested by `
 - **Press again after a wake-up:** the key press that wakes the unit is not sent as a page turn (no wake-key detection): the
   first press wakes the remote, press again to turn the page. Owner decision.
 
-Pin assignments (`board_ac632n_demo_cfg.h`, all **assumed, to be verified on the board**, see "Before flashing" 4 and 5):
+Pin assignments (`board_ac632n_demo_cfg.h`, read from the stock firmware, **not measured on the board**, see "Before flashing" 4 and 5):
 sense `IO_PORTA_07` (stock reads PA7 at start, see Observed), keys `IO_PORTB_07` and `IO_PORTA_00` (stock keys 1 and 2).
 
 Wake-up pull (observed: read from the linked power library's listing during review): a wake-up pin with `pullup_down_enable` gets a pull-up when its edge is
-falling (the two keys) and a pull-down when it is rising (the sense pin), applied at start-up. To be verified on the board: that
+falling (the two keys) and a pull-down when it is rising, applied at start-up. The sense pin's entry has the pull disabled (`patches/0005`). To be verified on the board: that
 the pull is still in place in the powered-off state (`close_gpio` leaves the three pins alone at soft power-off), that the unit
 stays off with no key pressed and no cable, and that it wakes on each of the three.
 
@@ -236,8 +239,7 @@ Power-off request (`set_soft_poweroff` in `app_kindle_click.c`): the first reque
 low-battery event, do nothing) and it stops the 1 s poll. The power-off itself runs 300 ms later (`WAIT_DISCONN_TIME_MS`, to let
 the link close). A USB cable plugged in during those 300 ms gives no rising edge once the unit is off, so that callback reads the
 sense pin again and, if it is high, restarts the unit with `cpu_reset()` (`p33_soft_reset`) instead, so it boots with USB and BLE
-running. If the battery is flat, the boot-time low-battery check (one of the two paths above that do not consult the sense pin)
-can still power the unit off after that restart, before USB starts. Not tested on a device.
+running. Not tested on a device.
 
 ## BD19 library capabilities
 

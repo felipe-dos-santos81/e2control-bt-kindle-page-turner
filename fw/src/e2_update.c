@@ -10,6 +10,7 @@
 #include "app_power_manage.h"
 #include "kc_update_cmd.h"
 #include "e2_update.h"
+#include "e2_power.h"
 
 #define E2_UBOOT_TAG_ADDR   ((u8 *)0x800)   /* 8-byte RAM tag slot the mask ROM checks after a reset (uboot: inferred) */
 #define E2_UPDATE_HOLD_MS   3000            /* keys held this long right at boot */
@@ -38,49 +39,52 @@ void e2_update_enter(void)
     while (1);
 }
 
+/*------------------------------------------------------------------ USB: board status */
+#define E2_STATUS_SAMPLE_MS  500     /* as the SDK samples its own slow channels (PMU_CH_SAMPLE_FREQ) */
+
+/* One line for a '?' on the serial port, to check board facts that are not measured yet (pins: board config,
+ * TCFG_E2_BATTERY/SELECTOR/CHARGE_PORT): the chip's own VBAT reading (10 mV units), the voltage at the battery
+ * and selector pins (mV), USB power present, the charge-status level, seconds since start.
+ * Written in the USB interrupt, as the SDK's echo handler (task_pc.c) and the stock replies are: cdc_read_data and
+ * cdc_write_data share one mutex, so a write from a task could block the next cdc_rx, i.e. the update command. */
+static void status_reply(usb_dev usb_id)
+{
+    char line[96];
+
+    snprintf(line, sizeof line, "vbat=%d pa8=%d pa1=%d usb=%d pb6=%d up=%d\n", get_vbat_level(),
+             adc_get_voltage(TCFG_E2_BATTERY_AD_CH), adc_get_voltage(TCFG_E2_SELECTOR_AD_CH), e2_power_usb_present(),
+             gpio_read(TCFG_E2_CHARGE_PORT), sys_timer_get_ms() / 1000);
+    cdc_write_data(usb_id, (u8 *)line, strlen(line));
+}
+
 /*------------------------------------------------------------------ USB: JUMPBOOT */
 static kc_update_cmd_t cmd_state;   /* only touched in the USB interrupt */
-static volatile u8 status_asked;    /* set in the USB interrupt, cleared in the app task */
 
 /* CDC bulk-OUT callback, in the USB interrupt (as the SDK's usb_cdc_wakeup and the stock handler). */
 static void cdc_rx(struct usb_device_t *usb_device)
 {
+    const usb_dev usb_id = usb_device2id(usb_device);
     u8 buf[MAXP_SIZE_CDC_BULKOUT];
-    u32 len = cdc_read_data(usb_device2id(usb_device), buf, sizeof buf);
+    u32 len = cdc_read_data(usb_id, buf, sizeof buf);
+    u8 status_asked = 0;
 
     for (u32 i = 0; i < len; i++) {
         if (kc_update_cmd_feed(&cmd_state, buf[i])) {
             e2_update_enter();
         }
-        if (buf[i] == '?') {
-            status_asked = 1;
-        }
+        status_asked |= buf[i] == '?';
+    }
+    if (status_asked) {
+        status_reply(usb_id);
     }
 }
 
-/* Board status on the serial port: send '?', get one line. For checking the board facts that are read from the stock
- * firmware and not measured: the chip's own VBAT reading (10 mV units), the battery divider on PA8 and the selector
- * on PA1 (mV at the pin), USB-power sense PA7, charge status PB6. Runs in the app task (the timer is added from it). */
-static void status_poll(void *priv)
+/* Analog input, as the stock board init sets PA8 and PA1, sampled slowly: only the status line reads it. */
+static void analog_in(u32 pin, u32 ad_ch)
 {
-    char line[96];
-
-    if (!status_asked) {
-        return;
-    }
-    status_asked = 0;
-    snprintf(line, sizeof line, "vbat=%d pa8=%d pa1=%d pa7=%d pb6=%d up=%d\n", get_vbat_level(), adc_get_voltage(AD_CH_PA8),
-            adc_get_voltage(AD_CH_PA1), gpio_read(IO_PORTA_07), gpio_read(IO_PORTB_06), sys_timer_get_ms() / 1000);
-    cdc_write_data(0, (u8 *)line, strlen(line));
-}
-
-static void analog_in(u8 pin, u32 ch)   /* as the stock board init does for PA8 and PA1 */
-{
-    gpio_set_direction(pin, 1);
-    gpio_set_pull_up(pin, 0);
-    gpio_set_pull_down(pin, 0);
-    gpio_set_die(pin, 0);
-    adc_add_sample_ch(ch);
+    e2_input_pin(pin, 0, 0);
+    adc_add_sample_ch(ad_ch);
+    adc_set_sample_freq(ad_ch, E2_STATUS_SAMPLE_MS);
 }
 
 void e2_update_usb_start(void)
@@ -88,26 +92,13 @@ void e2_update_usb_start(void)
     usb_start();                        /* stock 0x1e05b8e; SDK task_pc.c: CDC on USB0, echo demo callback */
     cdc_set_wakeup_handler(cdc_rx);     /* stock does this inside its usb_start (handler 0x1e02fc2) */
 
-    analog_in(IO_PORTA_08, AD_CH_PA8);
-    analog_in(IO_PORTA_01, AD_CH_PA1);
-    gpio_set_direction(IO_PORTB_06, 1); /* charge status: input with pull-up, as stock */
-    gpio_set_pull_down(IO_PORTB_06, 0);
-    gpio_set_pull_up(IO_PORTB_06, 1);
-    gpio_set_die(IO_PORTB_06, 1);
-    sys_timer_add(NULL, status_poll, 200);
+    analog_in(TCFG_E2_BATTERY_PORT, TCFG_E2_BATTERY_AD_CH);
+    analog_in(TCFG_E2_SELECTOR_PORT, TCFG_E2_SELECTOR_AD_CH);
+    e2_input_pin(TCFG_E2_CHARGE_PORT, 1, 1);
 }
 
 /*------------------------------------------------------------------ keys at power-on */
 #if E2_KEY_ENTRY
-/* Key to GND, internal pull-up: the stock E2's IO keys (ONE_PORT_TO_LOW). */
-static void key_pin_input(u32 pin)
-{
-    gpio_set_direction(pin, 1);
-    gpio_set_pull_down(pin, 0);
-    gpio_set_pull_up(pin, 1);
-    gpio_set_die(pin, 1);
-}
-
 __attribute__((noinline)) static int e2_key_entry_held(void)
 {
     return gpio_read(TCFG_E2_UPDATE_KEY1_PORT) == 0 && gpio_read(TCFG_E2_UPDATE_KEY2_PORT) == 0;
@@ -119,8 +110,8 @@ void e2_update_boot_keys(void)
 #if E2_KEY_ENTRY
     /* ponytail: polls the two pins directly (as app_mouse_dual.c does for its two-key gesture): the key
      * driver reports one key at a time. */
-    key_pin_input(TCFG_E2_UPDATE_KEY1_PORT);
-    key_pin_input(TCFG_E2_UPDATE_KEY2_PORT);
+    e2_input_pin(TCFG_E2_UPDATE_KEY1_PORT, 1, 1);   /* key to GND, internal pull-up: the stock E2's IO keys */
+    e2_input_pin(TCFG_E2_UPDATE_KEY2_PORT, 1, 1);
     os_time_dly(1);         /* let the pull-ups settle: one 10 ms tick */
     for (u32 ms = 0; e2_key_entry_held(); ms += 10) {
         if (ms >= E2_UPDATE_HOLD_MS) {

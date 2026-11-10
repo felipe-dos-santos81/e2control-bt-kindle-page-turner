@@ -1,6 +1,7 @@
 # Makefile for E2 Control — reverse engineering and Kindle firmware
 # Targets are numbered by pipeline stage:
-#   1a unpack → 1b rom → 2 ghidra → 3 score → 4 import → 5 firmware (test, build, image)
+#   1a unpack → 1b rom → 2 ghidra → 3 score → 4 import → 5 firmware (a test, b build, c image, d rescue)
+# Only fw-rescue touches the device.
 SERVICE = E2 Control
 
 # Variables
@@ -67,7 +68,7 @@ ghidra-import: firmware-unpack firmware-rom ghidra-install ## [STEP  4] Analyze 
 ghidra-import-all: firmware-unpack firmware-rom ghidra-install ## [STEP  4] Analyze every variant into ghidra/project/E2
 	for v in $(VARIANTS); do echo "Analyzing $$v..."; ghidra/import.sh extracted/$$v || exit 1; done
 
-# ── Stage 5 · Kindle firmware (fw/src + SDK → app.bin → flash image) ─────────
+# ── Stage 5 · Kindle firmware (fw/src + SDK → app.bin → flash image → device) ─
 
 fw-test: ## [STEP 5a] Run the host tests for the Kindle Click logic (fw/src/kc_*.c)
 	mkdir -p fw/out
@@ -82,9 +83,10 @@ fw-build: ## [STEP 5b] Build fw/out/app.bin in the Jieli toolchain container (Do
 	fw/build.sh
 
 fw-image: ## [STEP 5c] Put fw/out/app.bin into a base image → fw/out/e2-kindle.bin (usage: make fw-image base=<flash image>)
-	@test -n "$(base)" || { echo "usage: make fw-image base=<flash image, e.g. backup/e2-stock.bin>"; exit 1; }
+	@test -n "$(base)" || { echo "usage: make fw-image base=<your unit's image, e.g. firmware/e2control-zoom-phone-tablet.bin>"; exit 1; }
 	mkdir -p fw/out
 	$(PYTHON) tools/jlimg.py pack $(base) fw/out/app.bin fw/out/e2-kindle.bin
 
-fw-rescue: ## [STEP 5d] Wait for the E2 on USB (either mode), then flash fw/out/e2-kindle.bin and reboot it (writes to the device)
+fw-rescue: ## [STEP 5d] WRITES TO THE DEVICE: wait for the E2 on USB, flash fw/out/e2-kindle.bin, reboot (usage: make fw-rescue yes=1)
+	@test "$(yes)" = 1 || { echo "fw-rescue writes to the device as soon as it appears. usage: make fw-rescue yes=1"; exit 1; }
 	$(PYTHON) tools/e2boot.py rescue fw/out/e2-kindle.bin --yes

@@ -5,8 +5,18 @@
 #define E2_POWER_H
 
 #include "typedef.h"
+#include "asm/gpio.h"
 
-/* App start: set up the USB-power sense pin and start the 1 s power poll. power_off is called once, in the
+/* Input pin without pull-down: digital, with or without pull-up, or analog (digital 0). */
+static inline void e2_input_pin(u32 pin, u8 digital, u8 pull_up)
+{
+    gpio_set_direction(pin, 1);
+    gpio_set_pull_down(pin, 0);
+    gpio_set_pull_up(pin, pull_up);
+    gpio_set_die(pin, digital);
+}
+
+/* App start: set up the USB-power sense pin and, when the board config enables self power-off, start the 1 s power poll. power_off is called once, in the
  * app task, when the unit must soft-power-off (the app's own set_soft_poweroff). */
 void e2_power_init(void (*power_off)(void));
 

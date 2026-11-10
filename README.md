@@ -19,7 +19,7 @@ make test    # run all host tests (no device, no Docker)
 | Chip | Zhuhai Jieli **AC632N** (from the firmware header) |
 | USB, normal mode | `4c4a:4155` "USB Composite Device", CDC-ACM serial only (`/dev/cu.usbmodem*`) |
 | USB, update mode | same ID, one vendor HID interface (usage page `0xFF00`), no serial port |
-| USB serial protocol | JSON at 460800 baud: `{"o":"get","t":"model"}` → `{"o":"getresult","t":"model","v":"JL_BT"}`. Fields: `model`, `firmware` (`V0.04`), `mac`, `battery`. The first command after the port opens gets no reply. |
+| USB serial protocol | JSON at 460800 baud: `{"o":"get","t":"model"}` → `{"o":"getresult","t":"model","v":"JL_BT"}`. Fields: `model`, `firmware` (`V0.04`), `mac`, `battery`. The first command after the port opens is sometimes dropped. |
 | BLE name | `E2 Control` |
 | BLE PnP ID | `05AC:0220` v`0x0110` (an Apple keyboard ID; the device spoofs it) |
 | Device Information | manufacturer `zhuhai_jieli`, model `hid_mouse`, FW/HW/SW `0.0.1`, serial `000000` |
@@ -54,7 +54,7 @@ Check the files:
 cd firmware && shasum -a 256 -c SHA256SUMS
 ```
 
-Each image matches a SHA-512 value in `manifest_en_US.json` or `manifest_zh_CN.json`. The manifest labels are not consistent between languages, so match files by hash, not by label. The firmware on your unit can be any of these variants. All five report version `V0.04` over USB, so the version does not tell them apart.
+Each image matches a SHA-512 value in `manifest_en_US.json` or `manifest_zh_CN.json`. The manifest labels are not consistent between languages, so match files by hash, not by label. The firmware on your unit can be any of these variants. All five report version `V0.04` over USB, so the version does not tell them apart. `tools/e2boot.py verify <image>` does: it compares block checksums through the unit's updater. The unit studied here ran `zoom-phone-tablet`.
 
 ### Where the files come from
 
@@ -85,6 +85,7 @@ make ghidra-import variant=zoom-phone-tablet   # analyze one variant into ghidra
 | Path | Content |
 |---|---|
 | `tools/jlimg.py` | Unpacks `jl_isd.bin` (boot table, `uboot.boot`, app area, `app.bin`, `cfg_tool.bin`, `layout.json`) and checks every CRC. `pack` puts a new `app.bin` into an existing image and keeps all other bytes. |
+| `tools/e2boot.py` | Client for the unit's USB updater: enter update mode, compare the flash with an image by block CRC, flash, reboot. Needs `hidapi` (`brew install hidapi`). Protocol: [`docs/update-path.md`](docs/update-path.md). |
 | `tools/romlst.py` | Rebuilds the BD19 mask ROM (`0x100000`–`0x107000`) and its labels from the SDK's `rom.lst`. |
 | `tools/q32s_score.py` | Compares Ghidra's decoding with the vendor objdump. |
 | `tools/fndiff.py` | Compares variants by normalized decompiled C, per function. |
@@ -100,6 +101,7 @@ make ghidra-import variant=zoom-phone-tablet   # analyze one variant into ghidra
 
 - **Image scrambling.** The header and the boot table use the Jieli ENC scrambler (CRC-16 LFSR XOR) with key `0xFFFF`. The app area starts at flash `0x3000`. Its 32-byte blocks use key `chip_key ^ (offset >> 2)`. The chip key is **`0x284c`** for all five images. `jlimg.py` finds it by brute force: only that key gives a valid CRC for the `app_area_head` record.
 - **App area files.** `app.bin` (code), `cfg_tool.bin` (holds the BLE name `E2 Control`), and the partitions `VM`, `PRCT` and `BTIF`.
+- **Boot code.** `uboot.boot` is one LZ4 block whose dictionary is the mask ROM. It unpacks to `0x2940` bytes at RAM `0x2000` and holds the USB HID updater. The updater can erase, write and report block CRCs. It cannot read flash.
 - **Memory map.**
 
   | Address | Content |
@@ -146,16 +148,13 @@ Ghidra misses the click handlers' jump table (`tbb` at `0x1E05D2A`) and the gest
 
 ```sh
 make fw-test                        # host tests for the Kindle Click logic
-make tools-test                     # image-packer tests (needs firmware/*.bin)
+make tools-test                     # image-packer tests (needs firmware/*.bin) and updater-client tests
 make fw-build                       # build fw/out/app.bin in the Jieli toolchain container (Docker)
-make fw-image base=<flash image>    # put the built app into an existing image
+make fw-image base=<your image>     # put the built app into your unit's image -> fw/out/e2-kindle.bin
+make fw-rescue yes=1                # WRITES TO THE DEVICE: wait for the E2 on USB, flash fw/out/e2-kindle.bin, reboot
 ```
 
-**Status (2026-11-10): the unit is locked out.** A first build was flashed and ran: it answered on USB and went into update mode on command. After the unit was switched off it has not started again. The likely cause is the SDK's battery check at start, which the stock firmware does not use on this board. `docs/update-path.md` has the record ("Lockout"). The sources now hold a build without that check; it has not run on the device.
-
-```sh
-make fw-rescue                      # wait for the E2 on USB, then flash fw/out/e2-kindle.bin and reboot (writes to the device)
-```
+**Status (2026-11-10): the unit is locked out.** A first build was flashed and ran: it answered on USB and went into update mode on command. After the unit was switched off it has not started again. The likely cause is the SDK's battery check at start, which the stock firmware does not use on this board. [`docs/update-path.md`](docs/update-path.md) has the record ("Lockout"). The sources now hold a build without that check. It has not run on the device.
 
 Done on the device:
 
@@ -181,7 +180,7 @@ Open points:
 
 ## Warnings
 
-- Flash only an AC632N image. An image for a different chip, for example AC636N, can make the device unusable. The vendor's Kindle builds for other models are AC636N images.
-- There is no recovery tool for this unit. A bad flash can be final.
-- Make a flash backup before any write, if the updater allows it.
+- Flash only an AC632N image built on your unit's own image. An image for a different chip, for example AC636N, can make the device unusable. The vendor's Kindle builds for other models are AC636N images. `e2boot.py flash` refuses an image whose boot area differs from the device's.
+- There is no recovery tool for this unit. A firmware that is written correctly but does not start locks you out. That happened here.
+- The updater cannot read flash, so there is no dump. Before the first write, find your variant with `e2boot.py verify` and keep that image.
 - Do not flash the own firmware until the checklist in [`fw/README.md`](fw/README.md) holds.
