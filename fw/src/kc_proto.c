@@ -12,7 +12,7 @@ const uint8_t kc_adv_data_len = sizeof kc_adv_data;
 
 /* Report map from the verified protocol document (patricksuo/zectrix-note4-esp32-
  * kindle-page-turner, docs/PROTOCOL.md section 2). It is byte-identical to the
- * vendor's map in 2387LJ app.bin at 0x1E1DC3C (69 bytes), so there is no difference
+ * vendor's map in 2387LJ app.bin at 0x1E1DC3C, so there is no difference
  * to note. One Application Collection (Generic Desktop / Keyboard), Report ID 1,
  * 8 modifier bits, 1 reserved byte, 6 key bytes, one 16-bit Consumer usage:
  * 10 bytes after the report ID. */
