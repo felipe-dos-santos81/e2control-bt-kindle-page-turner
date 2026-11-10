@@ -34,6 +34,15 @@ Read-only `get` queries over `/dev/cu.usbmodem1301` at 460800 baud, with the sto
 - The MAC equals the Bluetooth address seen over BLE.
 - `V0.04` does not identify the variant: all five stock images contain the string `V0.04`.
 
+### Update command on the stock firmware (2026-11-10, with the owner's go-ahead)
+
+- The first command after the serial port is opened gets no reply (also true for `get`). A `JUMPBOOT` sent as the first command did nothing; the app kept answering `get` queries.
+- After two warm-up `get` queries, `{"o":"JUMPBOOT"}` took effect at once: the serial port disappeared ("Device not configured") and the device came back as a **USB HID device**: still `4c4a:4155` "USB Composite Device" (Jieli Technology), one interface of class 3 (HID), vendor usage page `0xFF00`, usage 1. No serial port.
+- So the boot code does act on the stock app's reset: the last inferred link of the update entry is now observed. This is the device the vendor's `UbootHid.exe` talks to.
+- Nothing was sent to the device in update mode.
+
+Consequence for the custom firmware: a host tool should send a `get` (or any bytes) before `JUMPBOOT`, or send `JUMPBOOT` twice. The custom firmware's own matcher accepts `JUMPBOOT` anywhere in the stream, including as the first bytes.
+
 ## Open questions for the device step
 
 - (Answered: the unit answers `get` queries, see above.) Does `JUMPBOOT` behave as described? What does the device look like on USB after the reset (VID/PID, interface)?
