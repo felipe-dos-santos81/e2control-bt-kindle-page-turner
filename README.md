@@ -120,6 +120,23 @@ Found by comparing the variants with `tools/fndiff.py`. Apart from relocation, `
 
 Ghidra misses the click handlers' jump table (`tbb` at `0x1E05D2A`) and the gesture functions `0x1E05C02` and `0x1E05C54`. Read them in the disassembly.
 
+## Kindle firmware (work in progress)
+
+Goal: own firmware that makes the E2 Control look like Amazon's Kindle Click, so a stock Kindle (2024 models onward, software 5.20.1.0.2) pairs with it. Design: [`docs/superpowers/specs/2026-11-09-kindle-click-firmware-design.md`](docs/superpowers/specs/2026-11-09-kindle-click-firmware-design.md). Plan: [`docs/superpowers/plans/2026-11-09-kindle-click-firmware.md`](docs/superpowers/plans/2026-11-09-kindle-click-firmware.md). Build notes and the **"Before flashing" checklist**: [`fw/README.md`](fw/README.md).
+
+```sh
+make fw-test      # host tests for the Kindle Click logic
+make tools-test   # image-packer tests (needs firmware/*.bin)
+make fw-build     # build app.bin in the Jieli toolchain container (Docker)
+make fw-image base=<flash image>   # put the built app into an existing image
+```
+
+Status (2026-11-10): the firmware builds and its logic is host-tested, but **nothing has run on the device**. It is built for the SDK's demo board, not yet for the E2's pins. Do not flash it. Open points:
+
+- The BD19 Bluetooth library has no LE Secure Connections. The firmware offers legacy pairing. It is unknown whether the Kindle accepts that.
+- The update entry (`JUMPBOOT` over USB serial, see [`docs/update-path.md`](docs/update-path.md)) is kept in the firmware, but it is unproven on the device.
+- Board pins (keys, LED, battery, USB-power sense) are assumed from analysis and must be checked on the board.
+
 ## Reverse-engineering resources
 
 - [osteotek/hlyflash](https://github.com/osteotek/hlyflash): CLI for Hanlinyue AC632N/AC636N page turners. It reads device info, parses `.ufw` files, implements the ENC cipher, and dumps flash.
