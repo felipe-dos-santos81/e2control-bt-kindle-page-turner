@@ -1,0 +1,60 @@
+[
+    {
+        "label": "Android e-ink screen reader",
+        "children": [
+            {
+                "name": "Android-based eBook reader",
+                "tooltip": "This version is the preferred firmware for Android-based reader devices. ",
+                "firmwareUrl": "http://obs.hanlinyue.mxlt.top/pc-simple/e2control/%E8%A7%A6%E6%91%B8%E6%9D%BF/jl_isd.bin",
+                "firmwareSha512": "0e7db4c2a89fd6a9058d25ec8aaacbaa216566028d39df936faa678d914f957e90b26d3548fcc10350f051b2361130540d60a10f82ee48f7ccd131b48535c61b",
+                "specification":"http://obs.hanlinyue.mxlt.top/pc-simple/Instructions/En/e-book.jpg"
+            },
+            {
+                "name": "KOBO reader",
+                "tooltip": "The Kobo Libra 2 model requires a plugin to enable page-turning. For other models, please ignore this message.<br><a target=\"_blank\" href=\"${i18n.global.t('specification.kobo')}\" style=\"color: cornflowerblue\">Click me to view the plugin installation method</a>",
+                "firmwareUrl": "http://obs.hanlinyue.mxlt.top/pc-simple/e2control/kobo%E7%89%88/jl_isd.bin",
+                "firmwareSha512": "bc10be53331853e546636ac7e77d7d94f68b97ba2a95f47cea62766959cd856fe1210aac550ff52fdc20f795c311533aa7e9f4404c7e1e756e6cb45f25f086cc",
+                "specification":"http://obs.hanlinyue.mxlt.top/pc-simple/Instructions/En/KOBO.jpg"
+            }
+        ],
+        "note": "<span style='color:red'>*kindle The device requires an assistive clip to enable page-turning. Please follow the instructions in the clip’s manual.；</span>"
+    },
+    {
+        "label": "Phone/Tablet firmware",
+        "children": [
+            {
+                "name": "Scaled version",
+                "tooltip": "This firmware is designed for phone/tablet devices and includes features like short video, music switching, reading, and photography.",
+                "firmwareUrl": "http://obs.hanlinyue.mxlt.top/pc-simple/e2control/%E7%BC%A9%E6%94%BE%E7%89%88/jl_isd.bin",
+                "firmwareSha512": "eeb0f1e5ff6dbf17040f8088706370f8c5cd285cec2bb7d9b714ec2102a3a5a607c04785f790abc57ef575ea596a57fd66cef72cd7df807bc5e12e32fe55c851",
+                "specification":"http://obs.hanlinyue.mxlt.top/pc-simple/Instructions/En/zoom.jpg"
+            }
+        ],
+        "note": "*When reading on Android devices, set the page turner to audio mode and enable “Volume key page turning” in the reading app settings. <br>*For Apple devices, enable Accessibility - Zoom in the settings."
+    },
+    {
+        "label": "Computer firmware",
+        "children": [
+            {
+                "name": "PPT / Short video / Music switching",
+                "tooltip": "This firmware supports PPT page turning, short video navigation, and volume control on Windows and Mac systems.",
+                "firmwareUrl": "http://obs.hanlinyue.mxlt.top/pc-simple/e2control/%E7%BC%A9%E6%94%BE%E7%89%88/jl_isd.bin",
+                "firmwareSha512": "72a2e0b0326ef31e8a75deeb840535d966be651b819398e2004f7b4a005f05a4cd88113f90ee3b8dfe835e58b51bbfaed0bd80fc56a8e1fbe24e76b61f4cc624",
+                "specification":"http://obs.hanlinyue.mxlt.top/pc-simple/Instructions/En/PPT.jpg"
+            }
+        ],
+        "note": "*Short video/music apps can be used after setting hotkeys in the app."
+    },
+    {
+        "label": "Motorcycle firmware",
+        "children": [
+            {
+                "name": "Entertainment",
+                "tooltip": "This firmware is suitable for new energy vehicles and supports video playback (up/down) and volume control functions.",
+                "firmwareUrl": "http://obs.hanlinyue.mxlt.top/pc-simple/e2control/%E8%A7%A6%E6%91%B8%E6%9D%BF/jl_isd.bin",
+                "firmwareSha512": "0e7db4c2a89fd6a9058d25ec8aaacbaa216566028d39df936faa678d914f957e90b26d3548fcc10350f051b2361130540d60a10f82ee48f7ccd131b48535c61b"
+            }
+        ],
+        "note": "*Page-turner functionality may vary; please refer to the actual device."
+    }
+]

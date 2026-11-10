@@ -1,0 +1,67 @@
+[
+    {
+        "label": "安卓系统墨水屏阅读器",
+        "children": [
+            {
+                "name": "安卓系统电纸书",
+                "tooltip": "此版本为Android系统阅读器设备首选固件",
+                "firmwareUrl": "http://obs.hanlinyue.mxlt.top/pc-simple/e2control/%E8%A7%A6%E6%91%B8%E6%9D%BF/jl_isd.bin",
+                "firmwareSha512": "0e7db4c2a89fd6a9058d25ec8aaacbaa216566028d39df936faa678d914f957e90b26d3548fcc10350f051b2361130540d60a10f82ee48f7ccd131b48535c61b",
+                "specification": "http://obs.hanlinyue.mxlt.top/pc-simple/Instructions/zh/e-book.jpg"
+            },
+            {
+                "name": "KOBO 阅读器",
+                "tooltip": "kobo libra2型号需要安装插件后才可翻页,其它型号请忽略本提示；",
+                "firmwareUrl": "http://obs.hanlinyue.mxlt.top/pc-simple/e2control/kobo%E7%89%88/jl_isd.bin",
+                "firmwareSha512": "bc10be53331853e546636ac7e77d7d94f68b97ba2a95f47cea62766959cd856fe1210aac550ff52fdc20f795c311533aa7e9f4404c7e1e756e6cb45f25f086cc",
+                "specification": "http://obs.hanlinyue.mxlt.top/pc-simple/Instructions/zh/KOBO.jpg"
+            },
+            {
+                "name": "阅星曈",
+                "tooltip": "阅星曈X4设备  此固件在翻页器“左右模式”仅支持阅星曈X4固件",
+                "firmwareUrl": "http://obs.hanlinyue.mxlt.top/pc-simple/e2control/%E9%98%85%E6%98%9F%E7%9E%B3/jl_isd.bin",
+                "firmwareSha512": "0c526c32e403142bee962f21cf45f3b8d8b5f1443639fe55fad14e4d2b8f483a2d8fc544c7be6c88c08e8af8303b3a962b12835a421fff3fed7c4400c7f4642d",
+                "specification": "http://obs.hanlinyue.mxlt.top/pc-simple/Instructions/zh/yuexingtong.jpg"
+            }
+        ],
+        "note": "<span style='color:red'>*kindle设备需使⽤辅助夹来实现翻⻚功能，请按照辅助夹说明书操作即可；</span>"
+    },
+    {
+        "label": "手机/平板固件",
+        "children": [
+            {
+                "name": "缩放版",
+                "tooltip": "此固件适用于手机/平板设备：短视频、音乐切换、阅读、拍照等功能",
+                "firmwareUrl": "http://obs.hanlinyue.mxlt.top/pc-simple/e2control/%E7%BC%A9%E6%94%BE%E7%89%88/jl_isd.bin",
+                "firmwareSha512": "72a2e0b0326ef31e8a75deeb840535d966be651b819398e2004f7b4a005f05a4cd88113f90ee3b8dfe835e58b51bbfaed0bd80fc56a8e1fbe24e76b61f4cc624",
+                "specification": "http://obs.hanlinyue.mxlt.top/pc-simple/Instructions/zh/zoom.jpg"
+            }
+        ],
+        "note": "*安卓设备阅读时,翻页器调至音频模式，阅读APP设置中“音量键翻页”打开; <br>*苹果设备需在设置中打开辅助功能-缩放；"
+    },
+    {
+        "label": "电脑端固件",
+        "children": [
+            {
+                "name": "PPT/短视频/音乐切换",
+                "tooltip": "此固件适用于Windows/MAC系统PPT翻页,短视频上下切换,音量控制大小",
+                "firmwareUrl": "http://obs.hanlinyue.mxlt.top/pc-simple/e2control/kobo%E7%89%88/jl_isd.bin",
+                "firmwareSha512": "bc10be53331853e546636ac7e77d7d94f68b97ba2a95f47cea62766959cd856fe1210aac550ff52fdc20f795c311533aa7e9f4404c7e1e756e6cb45f25f086cc",
+                "specification": "http://obs.hanlinyue.mxlt.top/pc-simple/Instructions/zh/PPT.jpg"
+            }
+        ],
+        "note": "*短视频/音乐软件需在APP中设置快捷键后即可使用"
+    },
+    {
+        "label": "机车端固件",
+        "children": [
+            {
+                "name": "娱乐",
+                "tooltip": "此固件适用于新能源汽车上下看视频、音量大小功能；",
+                "firmwareUrl": "http://obs.hanlinyue.mxlt.top/pc-simple/e2control/%E8%A7%A6%E6%91%B8%E6%9D%BF/jl_isd.bin",
+                "firmwareSha512": "0e7db4c2a89fd6a9058d25ec8aaacbaa216566028d39df936faa678d914f957e90b26d3548fcc10350f051b2361130540d60a10f82ee48f7ccd131b48535c61b"
+            }
+        ],
+        "note": "*翻页器功能请以实际为准"
+    }
+]

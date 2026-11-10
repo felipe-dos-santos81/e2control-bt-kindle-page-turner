@@ -1,0 +1,5 @@
+extracted/
+ghidra/project/
+*.sla
+firmware/*.bin
+__pycache__/

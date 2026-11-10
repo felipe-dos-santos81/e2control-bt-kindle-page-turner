@@ -1,0 +1,31 @@
+##################
+#
+# Encodings added from the vendor ROM listing (cpu/bd19/tools/rom.lst).
+# Second word: regE = dest (15:12), regF = src (11:8), regG = shift reg (7:4), imm1923 = shamt (7:3).
+#
+##################
+
+:clz regE, regF is group=7 & ins0012=0x1DE8 ; regE & regF { regE = lzcount(regF); }
+:lsl regE, regF, imm1923 is group=7 & ins0012=0x1DF0 ; regE & regF & imm1923 { regE = regF << imm1923; }
+:lsr regE, regF, imm1923 is group=7 & ins0012=0x1DF2 ; regE & regF & imm1923 { regE = regF >> imm1923; }
+# "<>" in the vendor syntax; rotate right (the ROM SHA-256 uses it with 2/13/22, 6/11/25, 7/18, 17/19)
+# fdf3/fdfb: inferred from the 16-bit shift group order (lsl=0 qasl=1 lsr=2 qasr=3); app.bin uses
+# fdf3 with shamt 31 as a sign mask. Not in rom.lst.
+:asr regE, regF, imm1923 is group=7 & ins0012=0x1DF3 ; regE & regF & imm1923 { regE = regF s>> imm1923; }
+:asr regE, regF, regG is group=7 & ins0012=0x1DFB ; regE & regF & regG { regE = regF s>> regG; }
+:ror regE, regF, imm1923 is group=7 & ins0012=0x1DF4 ; regE & regF & imm1923 { regE = (regF >> imm1923) | (regF << (32 - imm1923)); }
+:lsl regE, regF, regG is group=7 & ins0012=0x1DF8 ; regE & regF & regG { regE = regF << regG; }
+:lsr regE, regF, regG is group=7 & ins0012=0x1DFA ; regE & regF & regG { regE = regF >> regG; }
+
+# if (rE ?? weirdimm) goto pcrel17m2: the ff0x compares with the weirdimm operand (ff21, ff2b seen)
+
+:jeq regE, "#"weirdimm, pcrel17m2 is group=7 & ins0012=0x1F20 ; regE & weirdimm ; pcrel17m2 { if (regE == weirdimm) goto pcrel17m2; }
+:jne regE, "#"weirdimm, pcrel17m2 is group=7 & ins0012=0x1F21 ; regE & weirdimm ; pcrel17m2 { if (regE != weirdimm) goto pcrel17m2; }
+:jcs regE, "#"weirdimm, pcrel17m2 is group=7 & ins0012=0x1F22 ; regE & weirdimm ; pcrel17m2 { if (regE >= weirdimm) goto pcrel17m2; }
+:jcc regE, "#"weirdimm, pcrel17m2 is group=7 & ins0012=0x1F23 ; regE & weirdimm ; pcrel17m2 { if (regE < weirdimm) goto pcrel17m2; }
+:jhi regE, "#"weirdimm, pcrel17m2 is group=7 & ins0012=0x1F28 ; regE & weirdimm ; pcrel17m2 { if (regE > weirdimm) goto pcrel17m2; }
+:jls regE, "#"weirdimm, pcrel17m2 is group=7 & ins0012=0x1F29 ; regE & weirdimm ; pcrel17m2 { if (regE <= weirdimm) goto pcrel17m2; }
+:jge regE, "#"weirdimm, pcrel17m2 is group=7 & ins0012=0x1F2A ; regE & weirdimm ; pcrel17m2 { if (regE s>= weirdimm) goto pcrel17m2; }
+:jlt regE, "#"weirdimm, pcrel17m2 is group=7 & ins0012=0x1F2B ; regE & weirdimm ; pcrel17m2 { if (regE s< weirdimm) goto pcrel17m2; }
+:jgt regE, "#"weirdimm, pcrel17m2 is group=7 & ins0012=0x1F2C ; regE & weirdimm ; pcrel17m2 { if (regE s> weirdimm) goto pcrel17m2; }
+:jle regE, "#"weirdimm, pcrel17m2 is group=7 & ins0012=0x1F2D ; regE & weirdimm ; pcrel17m2 { if (regE s<= weirdimm) goto pcrel17m2; }

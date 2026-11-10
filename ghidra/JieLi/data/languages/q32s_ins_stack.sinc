@@ -1,0 +1,134 @@
+##################
+#
+# Stack Operations
+#
+# Register lists follow the vendor objdump (cpu/bd19/tools/rom.lst):
+# low nibble N >= 4 -> {rN..r4}, N < 4 -> {r3..rN}. Highest register at the highest address.
+#
+##################
+
+:pop pc is group=0 & ins0012=0x0030 & pc
+{
+	pop(pc);
+	return [pc];
+}
+
+:push rets is group=0 & ins0012=0x0034 & rets
+{
+	push(rets);
+}
+
+pushl: "r3-r0" is ins0003=0 { push(r3); push(r2); push(r1); push(r0); }
+pushl: "r3-r1" is ins0003=1 { push(r3); push(r2); push(r1); }
+pushl: "r3, r2" is ins0003=2 { push(r3); push(r2); }
+pushl: "r3" is ins0003=3 { push(r3); }
+pushl: "r4" is ins0003=4 { push(r4); }
+pushl: "r5, r4" is ins0003=5 { push(r5); push(r4); }
+pushl: "r6-r4" is ins0003=6 { push(r6); push(r5); push(r4); }
+pushl: "r7-r4" is ins0003=7 { push(r7); push(r6); push(r5); push(r4); }
+pushl: "r8-r4" is ins0003=8 { push(r8); push(r7); push(r6); push(r5); push(r4); }
+pushl: "r9-r4" is ins0003=9 { push(r9); push(r8); push(r7); push(r6); push(r5); push(r4); }
+pushl: "r10-r4" is ins0003=10 { push(r10); push(r9); push(r8); push(r7); push(r6); push(r5); push(r4); }
+pushl: "r11-r4" is ins0003=11 { push(r11); push(r10); push(r9); push(r8); push(r7); push(r6); push(r5); push(r4); }
+pushl: "r12-r4" is ins0003=12 { push(r12); push(r11); push(r10); push(r9); push(r8); push(r7); push(r6); push(r5); push(r4); }
+pushl: "r13-r4" is ins0003=13 { push(r13); push(r12); push(r11); push(r10); push(r9); push(r8); push(r7); push(r6); push(r5); push(r4); }
+pushl: "r14-r4" is ins0003=14 { push(r14); push(r13); push(r12); push(r11); push(r10); push(r9); push(r8); push(r7); push(r6); push(r5); push(r4); }
+pushl: "r15-r4" is ins0003=15 { push(r15); push(r14); push(r13); push(r12); push(r11); push(r10); push(r9); push(r8); push(r7); push(r6); push(r5); push(r4); }
+popl: "r3-r0" is ins0003=0 { pop(r0); pop(r1); pop(r2); pop(r3); }
+popl: "r3-r1" is ins0003=1 { pop(r1); pop(r2); pop(r3); }
+popl: "r3, r2" is ins0003=2 { pop(r2); pop(r3); }
+popl: "r3" is ins0003=3 { pop(r3); }
+popl: "r4" is ins0003=4 { pop(r4); }
+popl: "r5, r4" is ins0003=5 { pop(r4); pop(r5); }
+popl: "r6-r4" is ins0003=6 { pop(r4); pop(r5); pop(r6); }
+popl: "r7-r4" is ins0003=7 { pop(r4); pop(r5); pop(r6); pop(r7); }
+popl: "r8-r4" is ins0003=8 { pop(r4); pop(r5); pop(r6); pop(r7); pop(r8); }
+popl: "r9-r4" is ins0003=9 { pop(r4); pop(r5); pop(r6); pop(r7); pop(r8); pop(r9); }
+popl: "r10-r4" is ins0003=10 { pop(r4); pop(r5); pop(r6); pop(r7); pop(r8); pop(r9); pop(r10); }
+popl: "r11-r4" is ins0003=11 { pop(r4); pop(r5); pop(r6); pop(r7); pop(r8); pop(r9); pop(r10); pop(r11); }
+popl: "r12-r4" is ins0003=12 { pop(r4); pop(r5); pop(r6); pop(r7); pop(r8); pop(r9); pop(r10); pop(r11); pop(r12); }
+popl: "r13-r4" is ins0003=13 { pop(r4); pop(r5); pop(r6); pop(r7); pop(r8); pop(r9); pop(r10); pop(r11); pop(r12); pop(r13); }
+popl: "r14-r4" is ins0003=14 { pop(r4); pop(r5); pop(r6); pop(r7); pop(r8); pop(r9); pop(r10); pop(r11); pop(r12); pop(r13); pop(r14); }
+popl: "r15-r4" is ins0003=15 { pop(r4); pop(r5); pop(r6); pop(r7); pop(r8); pop(r9); pop(r10); pop(r11); pop(r12); pop(r13); pop(r14); pop(r15); }
+
+:pop {popl} is group=0 & ins0412=0x010 & popl { build popl; }
+:pop {rets, popl} is group=0 & ins0412=0x011 & popl & rets { build popl; pop(rets); }
+:pop {pc, popl} is group=0 & ins0412=0x015 & popl & pc { build popl; pop(pc); return [pc]; }
+:push {pushl} is group=0 & ins0412=0x016 & pushl { build pushl; }
+:push {rets, pushl} is group=0 & ins0412=0x017 & pushl & rets { push(rets); build pushl; }
+
+# Seen in ROM interrupt handlers (rom.lst), exact encodings only.
+:pop {rets} is group=0 & ins0012=0x0188 & rets { pop(rets); }
+:push {psr, rets, reti} is group=0 & ins0012=0x01E9 & psr & rets & reti { push(psr); push(rets); push(reti); }
+:pop {psr, rets, reti} is group=0 & ins0012=0x01A9 & psr & rets & reti { pop(reti); pop(rets); pop(psr); }
+
+# 16-bit register masks (second word): f378 push / f370 pop GPRs, f37e push / f37c pop special registers.
+
+pug0: " r0" is m00=1 { push(r0); }  pug0: is m00=0 { }
+pog0: " r0" is m00=1 { pop(r0); }  pog0: is m00=0 { }
+pug1: " r1" is m01=1 { push(r1); }  pug1: is m01=0 { }
+pog1: " r1" is m01=1 { pop(r1); }  pog1: is m01=0 { }
+pug2: " r2" is m02=1 { push(r2); }  pug2: is m02=0 { }
+pog2: " r2" is m02=1 { pop(r2); }  pog2: is m02=0 { }
+pug3: " r3" is m03=1 { push(r3); }  pug3: is m03=0 { }
+pog3: " r3" is m03=1 { pop(r3); }  pog3: is m03=0 { }
+pug4: " r4" is m04=1 { push(r4); }  pug4: is m04=0 { }
+pog4: " r4" is m04=1 { pop(r4); }  pog4: is m04=0 { }
+pug5: " r5" is m05=1 { push(r5); }  pug5: is m05=0 { }
+pog5: " r5" is m05=1 { pop(r5); }  pog5: is m05=0 { }
+pug6: " r6" is m06=1 { push(r6); }  pug6: is m06=0 { }
+pog6: " r6" is m06=1 { pop(r6); }  pog6: is m06=0 { }
+pug7: " r7" is m07=1 { push(r7); }  pug7: is m07=0 { }
+pog7: " r7" is m07=1 { pop(r7); }  pog7: is m07=0 { }
+pug8: " r8" is m08=1 { push(r8); }  pug8: is m08=0 { }
+pog8: " r8" is m08=1 { pop(r8); }  pog8: is m08=0 { }
+pug9: " r9" is m09=1 { push(r9); }  pug9: is m09=0 { }
+pog9: " r9" is m09=1 { pop(r9); }  pog9: is m09=0 { }
+pug10: " r10" is m10=1 { push(r10); }  pug10: is m10=0 { }
+pog10: " r10" is m10=1 { pop(r10); }  pog10: is m10=0 { }
+pug11: " r11" is m11=1 { push(r11); }  pug11: is m11=0 { }
+pog11: " r11" is m11=1 { pop(r11); }  pog11: is m11=0 { }
+pug12: " r12" is m12=1 { push(r12); }  pug12: is m12=0 { }
+pog12: " r12" is m12=1 { pop(r12); }  pog12: is m12=0 { }
+pug13: " r13" is m13=1 { push(r13); }  pug13: is m13=0 { }
+pog13: " r13" is m13=1 { pop(r13); }  pog13: is m13=0 { }
+pug14: " r14" is m14=1 { push(r14); }  pug14: is m14=0 { }
+pog14: " r14" is m14=1 { pop(r14); }  pog14: is m14=0 { }
+pug15: " r15" is m15=1 { push(r15); }  pug15: is m15=0 { }
+pog15: " r15" is m15=1 { pop(r15); }  pog15: is m15=0 { }
+pus0: " reti" is m00=1 { push(reti); }  pus0: is m00=0 { }
+pos0: " reti" is m00=1 { pop(reti); }  pos0: is m00=0 { }
+pus1: " rete" is m01=1 { push(rete); }  pus1: is m01=0 { }
+pos1: " rete" is m01=1 { pop(rete); }  pos1: is m01=0 { }
+pus2: " retx" is m02=1 { push(retx); }  pus2: is m02=0 { }
+pos2: " retx" is m02=1 { pop(retx); }  pos2: is m02=0 { }
+pus3: " rets" is m03=1 { push(rets); }  pus3: is m03=0 { }
+pos3: " rets" is m03=1 { pop(rets); }  pos3: is m03=0 { }
+pus4: " sr4" is m04=1 { push(sr4); }  pus4: is m04=0 { }
+pos4: " sr4" is m04=1 { pop(sr4); }  pos4: is m04=0 { }
+pus5: " psr" is m05=1 { push(psr); }  pus5: is m05=0 { }
+pos5: " psr" is m05=1 { pop(psr); }  pos5: is m05=0 { }
+pus6: " cnum" is m06=1 { push(cnum); }  pus6: is m06=0 { }
+pos6: " cnum" is m06=1 { pop(cnum); }  pos6: is m06=0 { }
+pus7: " sr7" is m07=1 { push(sr7); }  pus7: is m07=0 { }
+pos7: " sr7" is m07=1 { pop(sr7); }  pos7: is m07=0 { }
+pus8: " sr8" is m08=1 { push(sr8); }  pus8: is m08=0 { }
+pos8: " sr8" is m08=1 { pop(sr8); }  pos8: is m08=0 { }
+pus9: " sr9" is m09=1 { push(sr9); }  pus9: is m09=0 { }
+pos9: " sr9" is m09=1 { pop(sr9); }  pos9: is m09=0 { }
+pus10: " sr10" is m10=1 { push(sr10); }  pus10: is m10=0 { }
+pos10: " sr10" is m10=1 { pop(sr10); }  pos10: is m10=0 { }
+pus11: " icfg" is m11=1 { push(icfg); }  pus11: is m11=0 { }
+pos11: " icfg" is m11=1 { pop(icfg); }  pos11: is m11=0 { }
+pus12: " usp" is m12=1 { push(usp); }  pus12: is m12=0 { }
+pos12: " usp" is m12=1 { pop(usp); }  pos12: is m12=0 { }
+pus13: " ssp" is m13=1 { push(ssp); }  pus13: is m13=0 { }
+pos13: " ssp" is m13=1 { pop(ssp); }  pos13: is m13=0 { }
+pus14: " sp" is m14=1 { push(sp); }  pus14: is m14=0 { }
+pos14: " sp" is m14=1 { pop(sp); }  pos14: is m14=0 { }
+pus15: " pc" is m15=1 { push(pc); }  pus15: is m15=0 { }
+pos15: " pc" is m15=1 { pop(pc); }  pos15: is m15=0 { }
+:pushm {pug15^pug14^pug13^pug12^pug11^pug10^pug9^pug8^pug7^pug6^pug5^pug4^pug3^pug2^pug1^pug0 } is group=7 & ins0012=0x1378 ; pug15 & pug14 & pug13 & pug12 & pug11 & pug10 & pug9 & pug8 & pug7 & pug6 & pug5 & pug4 & pug3 & pug2 & pug1 & pug0 { build pug15; build pug14; build pug13; build pug12; build pug11; build pug10; build pug9; build pug8; build pug7; build pug6; build pug5; build pug4; build pug3; build pug2; build pug1; build pug0; }
+:popm {pog0^pog1^pog2^pog3^pog4^pog5^pog6^pog7^pog8^pog9^pog10^pog11^pog12^pog13^pog14^pog15 } is group=7 & ins0012=0x1370 ; pog0 & pog1 & pog2 & pog3 & pog4 & pog5 & pog6 & pog7 & pog8 & pog9 & pog10 & pog11 & pog12 & pog13 & pog14 & pog15 { build pog0; build pog1; build pog2; build pog3; build pog4; build pog5; build pog6; build pog7; build pog8; build pog9; build pog10; build pog11; build pog12; build pog13; build pog14; build pog15; }
+:pushm {pus15^pus14^pus13^pus12^pus11^pus10^pus9^pus8^pus7^pus6^pus5^pus4^pus3^pus2^pus1^pus0 } is group=7 & ins0012=0x137E ; pus15 & pus14 & pus13 & pus12 & pus11 & pus10 & pus9 & pus8 & pus7 & pus6 & pus5 & pus4 & pus3 & pus2 & pus1 & pus0 { build pus15; build pus14; build pus13; build pus12; build pus11; build pus10; build pus9; build pus8; build pus7; build pus6; build pus5; build pus4; build pus3; build pus2; build pus1; build pus0; }
+:popm {pos0^pos1^pos2^pos3^pos4^pos5^pos6^pos7^pos8^pos9^pos10^pos11^pos12^pos13^pos14^pos15 } is group=7 & ins0012=0x137C ; pos0 & pos1 & pos2 & pos3 & pos4 & pos5 & pos6 & pos7 & pos8 & pos9 & pos10 & pos11 & pos12 & pos13 & pos14 & pos15 { build pos0; build pos1; build pos2; build pos3; build pos4; build pos5; build pos6; build pos7; build pos8; build pos9; build pos10; build pos11; build pos12; build pos13; build pos14; build pos15; }
