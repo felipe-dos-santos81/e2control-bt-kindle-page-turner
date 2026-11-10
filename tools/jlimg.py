@@ -12,7 +12,7 @@ usage: jlimg.py IMAGE OUTDIR [--key HEX]   (key is brute-forced when omitted)
        jlimg.py pack BASE_IMAGE APP_BIN OUT [--cfg CFG_TOOL] [--key HEX]
          put APP_BIN (and CFG_TOOL, default: the base's) into BASE_IMAGE, rest stays byte-identical
 """
-import json, struct, sys
+import binascii, json, struct, sys
 from pathlib import Path
 
 CODE_BASE = 0x1E00000  # app area address in the CPU map
@@ -20,11 +20,8 @@ BOOT_SCAN = 4096 + 32  # boot area bytes scanned for the boot file table: 32 B h
 
 
 def crc16(data, crc=0):
-    for b in data:
-        crc ^= b << 8
-        for _ in range(8):
-            crc = ((crc << 1) ^ 0x1021 if crc & 0x8000 else crc << 1) & 0xFFFF
-    return crc
+    """CRC-16/XMODEM (poly 0x1021, MSB first), as used throughout the Jieli image format."""
+    return binascii.crc_hqx(bytes(data), crc)
 
 
 def enc(data, key):
@@ -81,10 +78,10 @@ def scramble(buf, key):
 
 
 def boot_table(image):
-    hdr = enc(image[:32], 0xFFFF)
-    if crc16(hdr[2:]) != int.from_bytes(hdr[:2], "little"):
+    plain = b"".join(enc(image[a:a + 32], 0xFFFF) for a in range(0, BOOT_SCAN, 32))  # header and records: 32 B each
+    if crc16(plain[2:32]) != int.from_bytes(plain[:2], "little"):
         raise ValueError("bad header CRC (not a jl_isd.bin?)")
-    return table(bytes(enc(image[:BOOT_SCAN], 0xFFFF)[:32]) + b"".join(enc(image[a:a + 32], 0xFFFF) for a in range(32, BOOT_SCAN, 32)), 32)
+    return table(plain, 32)
 
 
 def app_base(image):
@@ -155,13 +152,12 @@ def check(image, base_image, base, key):
         raise ValueError("self-check failed: length or boot area changed")
     plain = scramble(image[base:], key)
     recs = table(plain, 0, skip_first_last=True)  # raises on a bad record CRC
+    required = {"app.bin", "cfg_tool.bin"}  # pack patches these by name, so they must be present and verified
     for r in recs:
-        if r["attr"] & 0x1F == 2 and crc16(plain[r["offset"]:r["offset"] + r["size"]]) != r["crc"]:
+        if (r["attr"] & 0x1F == 2 or r["name"] in required) and crc16(plain[r["offset"]:r["offset"] + r["size"]]) != r["crc"]:
             raise ValueError(f"self-check failed: bad data CRC for {r['name']}")
-    for name in ("app.bin", "cfg_tool.bin"):  # pack patches these by name, so verify them by name too
-        r = next((r for r in recs if r["name"] == name), None)
-        if r is None or crc16(plain[r["offset"]:r["offset"] + r["size"]]) != r["crc"]:
-            raise ValueError(f"self-check failed: {name} missing or bad data CRC")
+    if missing := required - {r["name"] for r in recs}:
+        raise ValueError(f"self-check failed: {', '.join(sorted(missing))} missing")
     if crc16(plain[32:recs[0]["size"]]) != recs[0]["crc"]:
         raise ValueError("self-check failed: bad data CRC for app_area_head")
 

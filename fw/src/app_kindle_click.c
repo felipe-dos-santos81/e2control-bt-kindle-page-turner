@@ -47,7 +47,7 @@ extern void le_hogp_set_PNP_info(const u8 *info);
 extern void le_hogp_set_pair_allow(void);
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 
-static u16         holds[KEY_NUM_MAX];  /* consecutive HOLD events per SDK key number */
+static kc_keys_t   keys;                /* hold counting, see kc_keys.h */
 static volatile u8 is_active;       /* 1: keep the system out of low power (soft power-off running) */
 
 /* report_map_size is filled in at start: kc_report_map_len is not a constant expression. */
@@ -70,29 +70,15 @@ static void clear_bond(void)
 /*------------------------------------------------------------------ keys */
 static void key_event(u8 key, u8 event)
 {
-    u16 hold_count = 0;
-    u8 repeat = kc_key_repeat(key, event);  /* a multi-click is that many clicks */
-    kc_action_t a;
-
-    if (key < KEY_NUM_MAX) {
-        if (event == KEY_EVENT_HOLD) {
-            if (holds[key] < 0xffff) {
-                holds[key]++;
-            }
-            hold_count = holds[key];
-        } else {
-            holds[key] = 0;
-        }
-    }
+    u8 times;
+    kc_action_t a = kc_key_event(&keys, key, event, &times);
 
     e2_power_on_key();              /* any key event re-arms the 30 min idle power-off */
 
-    /* kc_key_action maps a multi-click event to KC_NONE: take the action from the CLICK event. */
-    a = repeat ? kc_key_action(key, KEY_EVENT_CLICK, 0) : kc_key_action(key, event, hold_count);
     if (a == KC_CLEAR_BOND) {
         clear_bond();
     } else if (a != KC_NONE) {
-        kc_send_press(a, repeat ? repeat : 1);
+        kc_send_press(a, times);
     }
 }
 
@@ -115,17 +101,6 @@ static void ble_status_event(u8 status)
         kc_send_encrypted();
         break;
     default:
-        break;
-    }
-}
-
-static void common_event(struct bt_event *bt)
-{
-    switch (bt->event) {
-    case COMMON_EVENT_BLE_CCCD_WRITE:
-        kc_send_cccd_written();
-        break;
-    default:                        /* COMMON_EVENT_BLE_REMOTE_TYPE: one report map for every host */
         break;
     }
 }
@@ -215,8 +190,8 @@ static int event_handler(struct application *app, struct sys_event *event)
             bt_comm_ble_hci_event_handler(&event->u.bt);
         } else if ((u32)event->arg == SYS_BT_EVENT_BLE_STATUS) {
             ble_status_event(event->u.bt.event);
-        } else if ((u32)event->arg == SYS_BT_EVENT_FORM_COMMON) {
-            common_event(&event->u.bt);
+        } else if ((u32)event->arg == SYS_BT_EVENT_FORM_COMMON && event->u.bt.event == COMMON_EVENT_BLE_CCCD_WRITE) {
+            kc_send_cccd_written();     /* the other common event, REMOTE_TYPE, needs nothing: one report map for every host */
         }
         return 0;
 

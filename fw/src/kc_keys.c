@@ -25,3 +25,23 @@ uint8_t kc_key_repeat(uint8_t key, uint8_t event)
     n = (uint8_t)(event - KC_EV_DOUBLE_CLICK + 2);
     return n > KC_QUEUE_LEN ? KC_QUEUE_LEN : n;
 }
+
+kc_action_t kc_key_event(kc_keys_t *st, uint8_t key, uint8_t event, uint8_t *times)
+{
+    kc_action_t a;
+
+    if (key == KC_KEY_AUX) {
+        if (event != KC_EV_HOLD) {
+            st->aux_holds = 0;
+        } else if (st->aux_holds < UINT16_MAX) {
+            st->aux_holds++;
+        }
+    }
+    *times = kc_key_repeat(key, event);
+    a = *times ? kc_key_action(key, KC_EV_CLICK, 0)
+               : kc_key_action(key, event, key == KC_KEY_AUX ? st->aux_holds : 0);
+    if (a != KC_NONE && *times == 0) {
+        *times = 1;
+    }
+    return a;
+}

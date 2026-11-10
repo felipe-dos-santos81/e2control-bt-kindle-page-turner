@@ -74,6 +74,25 @@ static void test_keys(void) {
     assert(kc_key_repeat(1, 1) == 0 && kc_key_repeat(1, 2) == 0 && kc_key_repeat(1, 3) == 0 && kc_key_repeat(1, 8) == 0);
     assert(kc_key_repeat(3, 0) == 0 && kc_key_repeat(3, 4) == 0 && kc_key_repeat(9, 4) == 0);   /* click has no action */
 }
+static void test_key_event(void) {
+    kc_keys_t k = {0}; uint8_t t;
+    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_CLICK, &t) == KC_PREV_PAGE && t == 1);
+    assert(kc_key_event(&k, KC_KEY_NEXT, KC_EV_DOUBLE_CLICK, &t) == KC_NEXT_PAGE && t == 2);   /* multi-click: that many presses */
+    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_FIFTH_CLICK, &t) == KC_PREV_PAGE && t == KC_QUEUE_LEN);
+    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_LONG, &t) == KC_NONE && t == 0);
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_CLICK, &t) == KC_NONE && t == 0);
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_DOUBLE_CLICK, &t) == KC_NONE && t == 0);
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_LONG, &t) == KC_SLEEP && t == 1);
+    for (int i = 1; i < KC_CLEAR_BOND_HOLDS; i++)                    /* holds 1..182: nothing, no repeated Sleep */
+        assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, &t) == KC_NONE && t == 0);
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, &t) == KC_CLEAR_BOND && t == 1);   /* exactly on hold 183 */
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, &t) == KC_NONE);                   /* and only once */
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_UP, &t) == KC_NONE);                     /* release restarts the count */
+    for (int i = 1; i < KC_CLEAR_BOND_HOLDS; i++)
+        assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, &t) == KC_NONE);
+    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_HOLD, &t) == KC_NONE);                  /* another key does not disturb it */
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, &t) == KC_CLEAR_BOND);
+}
 static void test_link(void) {
     kc_link_t l; kc_link_reset(&l);
     assert(kc_link_push(&l, KC_NEXT_PAGE));
@@ -207,10 +226,6 @@ static void test_power(void) {
     assert(!kc_power_should_off(false, true, KC_POWER_ADV_OFF_MS, KC_POWER_IDLE_OFF_MS - 1));
     assert(!kc_power_should_off(false, false, KC_POWER_ADV_OFF_MS - 1, UINT32_MAX));   /* not connected ignores the key time */
     assert(!kc_power_should_off(false, false, 0, KC_POWER_IDLE_OFF_MS));
-    /* battery monitor restart: only when it was stopped and USB power is gone */
-    assert(kc_power_restart_battery_monitor(true, false));
-    assert(!kc_power_restart_battery_monitor(true, true));
-    assert(!kc_power_restart_battery_monitor(false, false) && !kc_power_restart_battery_monitor(false, true));
 }
 int main(void) {
     test_adv();        puts("ok test_adv");
@@ -218,6 +233,7 @@ int main(void) {
     test_reports();    puts("ok test_reports");
     test_report_map(); puts("ok test_report_map");
     test_keys();       puts("ok test_keys");
+    test_key_event();  puts("ok test_key_event");
     test_link();       puts("ok test_link");
     test_link_fifo_reset_stale_cccd(); puts("ok test_link_fifo_reset_stale_cccd");
     test_update_cmd(); puts("ok test_update_cmd");

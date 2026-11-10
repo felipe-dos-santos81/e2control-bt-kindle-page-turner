@@ -131,8 +131,8 @@ index da1b28e..8665345 100644
 +//E2 update entry: these two pins held low for 3 s at power-on enter update mode (fw/src/e2_update.c).
 +//Values = stock E2 keys 1 and 2 (iokey_list 0x1E18E8A: PB7, PA0, to GND). Not compiled in while PA0 is
 +//the debug UART0 TX (TCFG_UART0_TX_PORT above): the build log says which.
-+#define TCFG_E2_UPDATE_KEY1_PORT            IO_PORTB_07
-+#define TCFG_E2_UPDATE_KEY2_PORT            IO_PORTA_00
++#define TCFG_E2_UPDATE_KEY1_PORT            TCFG_E2_WAKE_KEY1_PORT
++#define TCFG_E2_UPDATE_KEY2_PORT            TCFG_E2_WAKE_KEY2_PORT
 +//E2 power (fw/src/e2_power.c, board_ac632n_demo.c wk_param). ALL THREE PINS ARE ASSUMED, to be verified on the board.
 +//USB power sense: plain GPIO input, active high (stock reads PA7 at start). While high the unit never powers off,
 +//and a rising edge wakes it from soft-off.

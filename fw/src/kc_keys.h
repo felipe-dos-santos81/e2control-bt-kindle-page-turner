@@ -31,4 +31,14 @@ kc_action_t kc_key_action(uint8_t key, uint8_t event, uint16_t hold_count);
  * multi-click event, which kc_key_action maps to KC_NONE. */
 uint8_t kc_key_repeat(uint8_t key, uint8_t event);
 
+/* Key state kept between events. Zero-initialise it. */
+typedef struct {
+    uint16_t aux_holds;   /* consecutive KC_EV_HOLD events on KC_KEY_AUX */
+} kc_keys_t;
+
+/* The one call for the application: feed every SDK key event, get the action and how many times to apply it
+ * (*times is 1 for a single action, 2..4 for a multi-click on a page key, 0 with KC_NONE). Counts the hold events
+ * itself, so KC_CLEAR_BOND comes exactly once, on hold number KC_CLEAR_BOND_HOLDS. */
+kc_action_t kc_key_event(kc_keys_t *st, uint8_t key, uint8_t event, uint8_t *times);
+
 #endif

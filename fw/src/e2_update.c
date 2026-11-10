@@ -12,12 +12,11 @@
 #define E2_UBOOT_TAG_ADDR   ((u8 *)0x800)   /* 8-byte RAM tag slot the mask ROM checks after a reset (uboot: inferred) */
 #define E2_UPDATE_HOLD_MS   3000            /* keys held this long right at boot */
 
-/* Key entry: built when the board config names both key pins and neither is the debug UART TX pin.
- * fw/build.sh reports from sdk.lst whether e2_key_entry_held was linked (the SDK compiles with -w, so
- * a #pragma message would not show). */
-#if defined(TCFG_E2_UPDATE_KEY1_PORT) && defined(TCFG_E2_UPDATE_KEY2_PORT) && \
-    (TCFG_E2_UPDATE_KEY1_PORT != NO_CONFIG_PORT) && (TCFG_E2_UPDATE_KEY2_PORT != NO_CONFIG_PORT) && \
-    !(TCFG_UART0_ENABLE && ((TCFG_UART0_TX_PORT == TCFG_E2_UPDATE_KEY1_PORT) || (TCFG_UART0_TX_PORT == TCFG_E2_UPDATE_KEY2_PORT)))
+/* Key entry: the update keys are the two wake-up keys (board config: TCFG_E2_UPDATE_KEYn_PORT is
+ * TCFG_E2_WAKE_KEYn_PORT). It is built when both are usable, i.e. configured and not the debug UART TX pin;
+ * the board config holds that rule once, as E2_WAKE_KEYn_ENABLE. fw/build.sh reports from sdk.lst whether
+ * e2_key_entry_held was linked (the SDK compiles with -w, so a #pragma message would not show). */
+#if E2_WAKE_KEY1_ENABLE && E2_WAKE_KEY2_ENABLE
 #define E2_KEY_ENTRY 1
 #else
 #define E2_KEY_ENTRY 0

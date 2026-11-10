@@ -32,7 +32,7 @@ static void power_poll(void *priv)
     u32 now = sys_timer_get_ms();
     u8 usb = e2_power_usb_present();   /* read right before the decision, every time */
 
-    if (kc_power_restart_battery_monitor(monitor_stopped, usb)) {
+    if (monitor_stopped && !usb) {  /* stopped when a low-battery power-off was skipped on USB power */
         monitor_stopped = 0;
         vbat_check_init();          /* USB power is gone: the SDK checks the battery again */
     }
