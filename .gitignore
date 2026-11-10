@@ -7,3 +7,5 @@ __pycache__/
 backup/
 fw/sdk/
 fw/out/
+.DS_Store
+*.ufw

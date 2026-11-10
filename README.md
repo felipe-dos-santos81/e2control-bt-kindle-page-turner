@@ -1,13 +1,25 @@
-# E2 Control page turner: reverse-engineering notes
+# E2 Control page turner: reverse engineering and Kindle firmware
 
-Notes and official firmware images for the **HANLINYUE E2 Control** Bluetooth page turner. All data comes from read-only probes of one unit and from the vendor's public download servers.
+This repository has two parts, both for the **HANLINYUE E2 Control** Bluetooth page turner:
+
+1. **Reverse-engineering notes and tools** for the vendor firmware.
+2. **Own firmware** (work in progress) that makes the remote look like Amazon's Kindle Click, so a stock Kindle pairs with it. See [Kindle firmware](#kindle-firmware-work-in-progress).
+
+The data comes from probes of one unit and from the vendor's public download servers.
+
+```sh
+make help    # list all targets
+make test    # run all host tests (no device, no Docker)
+```
 
 ## Device identity
 
 | | Value |
 |---|---|
 | Chip | Zhuhai Jieli **AC632N** (from the firmware header) |
-| USB | `4c4a:4155` "USB Composite Device", CDC-ACM serial only (`/dev/cu.usbmodem*`), no HID |
+| USB, normal mode | `4c4a:4155` "USB Composite Device", CDC-ACM serial only (`/dev/cu.usbmodem*`) |
+| USB, update mode | same ID, one vendor HID interface (usage page `0xFF00`), no serial port |
+| USB serial protocol | JSON at 460800 baud: `{"o":"get","t":"model"}` → `{"o":"getresult","t":"model","v":"JL_BT"}`. Fields: `model`, `firmware` (`V0.04`), `mac`, `battery`. The first command after the port opens gets no reply. |
 | BLE name | `E2 Control` |
 | BLE PnP ID | `05AC:0220` v`0x0110` (an Apple keyboard ID; the device spoofs it) |
 | Device Information | manufacturer `zhuhai_jieli`, model `hid_mouse`, FW/HW/SW `0.0.1`, serial `000000` |
@@ -22,11 +34,11 @@ Over Bluetooth the device is a HID with these reports:
 - **Report 1:** a digitizer stylus with absolute X/Y from 0 to 1000. The device turns a page by sending a tap on the screen.
 - **Reports 3–5:** consumer keys: volume up/down, next/previous track, play/pause, mute, power, menu, home.
 
-The USB port does not send key presses. The vendor app uses it for configuration and firmware updates.
+The USB port does not send key presses. The vendor app uses it for configuration and firmware updates. The command `{"o":"JUMPBOOT"}` puts the device in update mode; see [`docs/update-path.md`](docs/update-path.md).
 
 ## Firmware
 
-The [`firmware/`](firmware/) folder contains the official images and the vendor manifests. All images are raw flash images (`jl_isd.bin`) for the AC632N. The plain header shows version `0.01`. The body is scrambled; `tools/jlimg.py` unscrambles it (see [Reverse engineering](#reverse-engineering)).
+The [`firmware/`](firmware/) folder holds the vendor manifests and `SHA256SUMS`. The images themselves are not in git; download them as described below. All images are raw flash images (`jl_isd.bin`) for the AC632N. The plain header shows version `0.01`. The body is scrambled; `tools/jlimg.py` unscrambles it (see [Reverse engineering](#reverse-engineering)).
 
 | File | Vendor variant | Target |
 |---|---|---|
@@ -42,7 +54,7 @@ Check the files:
 cd firmware && shasum -a 256 -c SHA256SUMS
 ```
 
-Each image matches a SHA-512 value in `manifest_en_US.json` or `manifest_zh_CN.json`. The manifest labels are not consistent between languages, so match files by hash, not by label. The firmware on your unit can be any of these variants.
+Each image matches a SHA-512 value in `manifest_en_US.json` or `manifest_zh_CN.json`. The manifest labels are not consistent between languages, so match files by hash, not by label. The firmware on your unit can be any of these variants. All five report version `V0.04` over USB, so the version does not tell them apart.
 
 ### Where the files come from
 
@@ -61,7 +73,6 @@ The AC632N is Jieli's **BD19** family. Its CPU uses the **q32s** instruction set
 ### Quick start
 
 ```sh
-make help                                      # list the targets
 make firmware-unpack                           # decrypt + split all images into extracted/
 make ghidra-score                              # check the q32s decoder against the vendor ROM listing
 make ghidra-import variant=zoom-phone-tablet   # analyze one variant into ghidra/project/E2
@@ -73,7 +84,7 @@ make ghidra-import variant=zoom-phone-tablet   # analyze one variant into ghidra
 
 | Path | Content |
 |---|---|
-| `tools/jlimg.py` | Unpacks `jl_isd.bin`: boot table, `uboot.boot`, `isd_config.ini`, app area, `app.bin`, `cfg_tool.bin`, `layout.json`, `ram_copies.tsv`. Checks every CRC. |
+| `tools/jlimg.py` | Unpacks `jl_isd.bin` (boot table, `uboot.boot`, app area, `app.bin`, `cfg_tool.bin`, `layout.json`) and checks every CRC. `pack` puts a new `app.bin` into an existing image and keeps all other bytes. |
 | `tools/romlst.py` | Rebuilds the BD19 mask ROM (`0x100000`–`0x107000`) and its labels from the SDK's `rom.lst`. |
 | `tools/q32s_score.py` | Compares Ghidra's decoding with the vendor objdump. |
 | `tools/fndiff.py` | Compares variants by normalized decompiled C, per function. |
@@ -81,7 +92,9 @@ make ghidra-import variant=zoom-phone-tablet   # analyze one variant into ghidra
 | `ghidra/JieLi/` | Ghidra processor module (Quarkslab fork, q32s fixed here; see its README). |
 | `ghidra/scripts/` | `SetupE2` (memory map, labels), `Reanalyze` (analysis to a fixed point), `ExportE2` (pseudo-C), `DisasmAt`, `DumpErrors`, `Xrefs`. |
 | `sdk/` | Three reference files from the Jieli SDK. |
-| `extracted/`, `ghidra/project/` | Generated. Not committed. |
+| `fw/` | Own firmware: sources, SDK patches, container build. See [`fw/README.md`](fw/README.md). |
+| `docs/` | Design, plan, and update-mode findings. |
+| `extracted/`, `ghidra/project/`, `fw/sdk/`, `fw/out/` | Generated. Not committed. |
 
 ### Findings
 
@@ -122,20 +135,32 @@ Ghidra misses the click handlers' jump table (`tbb` at `0x1E05D2A`) and the gest
 
 ## Kindle firmware (work in progress)
 
-Goal: own firmware that makes the E2 Control look like Amazon's Kindle Click, so a stock Kindle (2024 models onward, software 5.20.1.0.2) pairs with it. Design: [`docs/superpowers/specs/2026-11-09-kindle-click-firmware-design.md`](docs/superpowers/specs/2026-11-09-kindle-click-firmware-design.md). Plan: [`docs/superpowers/plans/2026-11-09-kindle-click-firmware.md`](docs/superpowers/plans/2026-11-09-kindle-click-firmware.md). Build notes and the **"Before flashing" checklist**: [`fw/README.md`](fw/README.md).
+**Goal.** A stock Kindle (2024 models onward, software 5.20.1.0.2) accepts only one page turner: Amazon's Kindle Click, which it recognizes by its Bluetooth IDs. This firmware makes the E2 Control present those IDs and send Page Up / Page Down.
+
+| Document | Content |
+|---|---|
+| [Design](docs/superpowers/specs/2026-11-09-kindle-click-firmware-design.md) | What the Kindle requires, behavior of the remote, owner decisions |
+| [Plan](docs/superpowers/plans/2026-11-09-kindle-click-firmware.md) | Tasks and their order |
+| [`fw/README.md`](fw/README.md) | Build notes, library findings, power behavior, **"Before flashing" checklist** |
+| [`docs/update-path.md`](docs/update-path.md) | How update mode is entered; what was observed on the device |
 
 ```sh
-make fw-test      # host tests for the Kindle Click logic
-make tools-test   # image-packer tests (needs firmware/*.bin)
-make fw-build     # build app.bin in the Jieli toolchain container (Docker)
-make fw-image base=<flash image>   # put the built app into an existing image
+make fw-test                        # host tests for the Kindle Click logic
+make tools-test                     # image-packer tests (needs firmware/*.bin)
+make fw-build                       # build fw/out/app.bin in the Jieli toolchain container (Docker)
+make fw-image base=<flash image>    # put the built app into an existing image
 ```
 
-Status (2026-11-10): the firmware builds and its logic is host-tested, but **nothing has run on the device**. It is built for the SDK's demo board, not yet for the E2's pins. Do not flash it. Open points:
+**Status (2026-11-10): do not flash it.** The firmware builds and its logic is host-tested. It has not run on the device. It is built for the SDK's demo board, not for the E2's pins.
 
-- The BD19 Bluetooth library has no LE Secure Connections. The firmware offers legacy pairing. It is unknown whether the Kindle accepts that.
-- The update entry (`JUMPBOOT` over USB serial, see [`docs/update-path.md`](docs/update-path.md)) is kept in the firmware, but it is unproven on the device.
-- Board pins (keys, LED, battery, USB-power sense) are assumed from analysis and must be checked on the board.
+Done on the device so far, with the stock firmware: the read-only `get` queries, and one `JUMPBOOT`, which put the unit in update mode as expected.
+
+Open points:
+
+- **Pairing.** The chip's Bluetooth library has no LE Secure Connections. The firmware offers legacy pairing. It is unknown whether the Kindle accepts that.
+- **Backup.** It is unknown whether the boot-area updater can read flash back. Without that there is no full backup of the unit.
+- **Board pins.** Keys, LED, battery and USB-power sense are assumed from analysis. They must be checked on the board and put in a board patch.
+- **Update entry in the own firmware.** The reset sequence equals the stock one, and the stock one works on the device. The own firmware's USB start is untested.
 
 ## Reverse-engineering resources
 
@@ -147,6 +172,7 @@ Status (2026-11-10): the firmware builds and its logic is host-tested, but **not
 
 ## Warnings
 
-- Flash only an AC632N image. An image for a different chip, for example AC636N, can make the device unusable.
-- Make a full flash dump before any write.
-- Use read commands only until you have a verified backup.
+- Flash only an AC632N image. An image for a different chip, for example AC636N, can make the device unusable. The vendor's Kindle builds for other models are AC636N images.
+- There is no recovery tool for this unit. A bad flash can be final.
+- Make a flash backup before any write, if the updater allows it.
+- Do not flash the own firmware until the checklist in [`fw/README.md`](fw/README.md) holds.

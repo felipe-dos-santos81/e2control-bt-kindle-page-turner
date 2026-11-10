@@ -1,6 +1,6 @@
-# Makefile for E2 Control — Firmware Reverse-Engineering Pipeline
+# Makefile for E2 Control — reverse engineering and Kindle firmware
 # Targets are numbered by pipeline stage:
-#   1a unpack → 1b rom → 2 ghidra → 3 score → 4 import → 5 firmware (build, test, image)
+#   1a unpack → 1b rom → 2 ghidra → 3 score → 4 import → 5 firmware (test, build, image)
 SERVICE = E2 Control
 
 # Variables
@@ -10,26 +10,28 @@ export GHIDRA_HOME
 VARIANTS := $(patsubst firmware/e2control-%.bin,%,$(wildcard firmware/e2control-*.bin))
 variant ?= zoom-phone-tablet
 
-.PHONY: help clean \
+.PHONY: help clean test \
         firmware-unpack firmware-rom \
         ghidra-install \
         ghidra-score \
         ghidra-import ghidra-import-all \
-        fw-build fw-test fw-image tools-test
+        fw-test tools-test fw-build fw-image
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
 help: ## Print this help message
-	@printf '\033[01;32m${SERVICE} — Firmware Reverse-Engineering Pipeline\033[00;37m\n\n'
+	@printf '\033[01;32m${SERVICE} — reverse engineering and Kindle firmware\033[00;37m\n\n'
 	@printf "\033[33mUsage:\033[0m\n  make [target] [arg=\"val\"...]\n\n\033[33mTargets:\033[0m\n"
 	@grep -E '^[-a-zA-Z0-9_\.\/]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; \
 		{printf "  \033[36m%-26s\033[0m %s\n", $$1, $$2}'
 	@printf "\n\033[33mVariants:\033[0m\n  $(VARIANTS)\n"
 
-clean: ## Remove extracted images and the Ghidra project (keeps firmware/ and the installed module)
-	rm -rf extracted ghidra/project
+clean: ## Remove extracted/, the Ghidra project and fw/out/ (keeps firmware/, fw/sdk/ and the installed module)
+	rm -rf extracted ghidra/project fw/out
 	@echo "Cleanup complete."
+
+test: fw-test tools-test ## Run all host tests (no device, no Docker)
 
 # ── Stage 1 · Unpack (jl_isd.bin → app.bin, ROM listing → rom.bin) ───────────
 
@@ -65,22 +67,20 @@ ghidra-import: firmware-unpack firmware-rom ghidra-install ## [STEP  4] Analyze 
 ghidra-import-all: firmware-unpack firmware-rom ghidra-install ## [STEP  4] Analyze every variant into ghidra/project/E2
 	for v in $(VARIANTS); do echo "Analyzing $$v..."; ghidra/import.sh extracted/$$v || exit 1; done
 
-# ── Stage 5 · Kindle firmware ──
+# ── Stage 5 · Kindle firmware (fw/src + SDK → app.bin → flash image) ─────────
 
-fw-build: ## [STEP  5] Build the firmware app.bin in the toolchain container
-	fw/build.sh
-
-fw-test: ## [STEP  5] Run the host tests for the Kindle Click logic
+fw-test: ## [STEP 5a] Run the host tests for the Kindle Click logic (fw/src/kc_*.c)
 	mkdir -p fw/out
 	$(CC) -std=c99 -Wall -Wextra -Werror -Ifw/src fw/src/kc_*.c fw/tests/test_kc.c -o fw/out/test_kc
 	fw/out/test_kc
 
-tools-test: ## [STEP  5] Run the image-packer tests (needs firmware/*.bin)
+tools-test: ## [STEP 5a] Run the image-packer tests (needs firmware/*.bin)
 	$(PYTHON) tools/test_jlimg.py
 
-# fw/out/app.bin → flashable image built on a stock one
+fw-build: ## [STEP 5b] Build fw/out/app.bin in the Jieli toolchain container (Docker)
+	fw/build.sh
 
-fw-image: ## [STEP  5] Put fw/out/app.bin into a stock image, rest byte-identical (usage: make fw-image base=firmware/e2control-zoom-phone-tablet.bin)
-	@test -n "$(base)" || { echo "usage: make fw-image base=firmware/e2control-<variant>.bin"; exit 1; }
+fw-image: ## [STEP 5c] Put fw/out/app.bin into a base image → fw/out/e2-kindle.bin (usage: make fw-image base=<flash image>)
+	@test -n "$(base)" || { echo "usage: make fw-image base=<flash image, e.g. backup/e2-stock.bin>"; exit 1; }
 	mkdir -p fw/out
 	$(PYTHON) tools/jlimg.py pack $(base) fw/out/app.bin fw/out/e2-kindle.bin
