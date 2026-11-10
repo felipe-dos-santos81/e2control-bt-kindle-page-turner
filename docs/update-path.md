@@ -41,6 +41,14 @@ Read-only `get` queries over `/dev/cu.usbmodem1301` at 460800 baud, with the sto
 - So the boot code does act on the stock app's reset: the last inferred link of the update entry is now observed. This is the device the vendor's `UbootHid.exe` talks to.
 - Nothing was sent to the device in update mode.
 
+Leaving update mode (observed, same day):
+
+- After the owner's first re-plug of the cable, the device enumerated again as the HID updater. No serial port.
+- After a second re-plug, it came back as the normal firmware: serial port `/dev/cu.usbmodem1301`, and the four `get` queries gave the same replies as before (`JL_BT`, `V0.04`, same MAC, battery 100).
+- So a visit to update mode with nothing sent does not change the firmware, and the device leaves update mode without a host tool.
+- Unknown: what made the difference between the two re-plugs (time unplugged, a button press, or a timeout in the boot code).
+- In this run the first `get` after opening the port was answered. The dropped first command is therefore not constant; keep the warm-up `get`.
+
 Consequence for the custom firmware: a host tool should send a `get` (or any bytes) before `JUMPBOOT`, or send `JUMPBOOT` twice. The custom firmware's own matcher accepts `JUMPBOOT` anywhere in the stream, including as the first bytes.
 
 ## Open questions for the device step

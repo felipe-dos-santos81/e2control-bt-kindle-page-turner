@@ -15,8 +15,8 @@ Two linked projects for one device, the HANLINYUE "E2 Control" Bluetooth page tu
 - Every action that writes to the device, or changes its state (for example the `JUMPBOOT` command), needs the owner's explicit go-ahead at that moment. Read-only `get` queries were approved once; ask again in a new session.
 - Never flash an image built for another chip. The vendor's Kindle builds are for AC636N.
 - Do not flash the custom firmware until every item of the "Before flashing" checklist in `fw/README.md` holds. As of 2026-11-10 it is built for the SDK's demo board, not the E2's pins.
-- Device state as of 2026-11-10: stock firmware `V0.04`. `get` queries and one `JUMPBOOT` were run on it (results in `docs/update-path.md`). The unit was left in update mode (USB HID, no serial port); the owner was asked to power-cycle it. Check which mode it is in before assuming a serial port exists.
-- Serial protocol: JSON at 460800 baud on `/dev/cu.usbmodem*` (on macOS set the speed with the `IOSSIOSPEED` ioctl; `pyserial` is not installed). The stock firmware drops the first command after the port opens, so send a `get` first.
+- Device state as of 2026-11-10: stock firmware `V0.04`. `get` queries and one `JUMPBOOT` were run on it (results in `docs/update-path.md`). The unit left update mode after a second cable re-plug and runs the stock firmware again (serial port back, same `get` replies). Check which mode it is in before assuming a serial port exists.
+- Serial protocol: JSON at 460800 baud on `/dev/cu.usbmodem*` (on macOS set the speed with the `IOSSIOSPEED` ioctl; `pyserial` is not installed). The stock firmware sometimes drops the first command after the port opens, so send a `get` first.
 - Firmware images (`firmware/*.bin`), flash backups (`backup/`) and vendor `.ufw` files stay out of git; only hashes and manifests are committed.
 
 ## Commands
