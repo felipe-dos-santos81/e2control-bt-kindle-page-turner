@@ -1,6 +1,6 @@
 # Makefile for E2 Control — Firmware Reverse-Engineering Pipeline
 # Targets are numbered by pipeline stage:
-#   1a unpack → 1b rom → 2 ghidra → 3 score → 4 import
+#   1a unpack → 1b rom → 2 ghidra → 3 score → 4 import → 5 image
 SERVICE = E2 Control
 
 # Variables
@@ -14,7 +14,8 @@ variant ?= zoom-phone-tablet
         firmware-unpack firmware-rom \
         ghidra-install \
         ghidra-score \
-        ghidra-import ghidra-import-all
+        ghidra-import ghidra-import-all \
+        fw-image
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -63,3 +64,9 @@ ghidra-import: firmware-unpack firmware-rom ghidra-install ## [STEP  4] Analyze 
 
 ghidra-import-all: firmware-unpack firmware-rom ghidra-install ## [STEP  4] Analyze every variant into ghidra/project/E2
 	for v in $(VARIANTS); do echo "Analyzing $$v..."; ghidra/import.sh extracted/$$v || exit 1; done
+
+# ── Stage 5 · Image (fw/out/app.bin → flashable image built on a stock one) ──
+
+fw-image: ## [STEP  5] Put fw/out/app.bin into a stock image, rest byte-identical (usage: make fw-image base=firmware/e2control-zoom-phone-tablet.bin)
+	@test -n "$(base)" || { echo "usage: make fw-image base=firmware/e2control-<variant>.bin"; exit 1; }
+	$(PYTHON) tools/jlimg.py pack $(base) fw/out/app.bin fw/out/e2-kindle.bin

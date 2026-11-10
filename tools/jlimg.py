@@ -9,6 +9,8 @@ Layout (from hlyflash/flashimage.py and the BD19 SDK):
 app.bin runs from CODE_BEG = 0x1E00120 (cpu/bd19/sdk_ld.c), so the app area maps at 0x1E00000.
 
 usage: jlimg.py IMAGE OUTDIR [--key HEX]   (key is brute-forced when omitted)
+       jlimg.py pack BASE_IMAGE APP_BIN OUT [--cfg CFG_TOOL] [--key HEX]
+         put APP_BIN (and CFG_TOOL, default: the base's) into BASE_IMAGE, rest stays byte-identical
 """
 import json, struct, sys
 from pathlib import Path
@@ -72,13 +74,21 @@ def ram_copies(app):
     return out
 
 
-def unpack(image, outdir, key=None):
-    out = Path(outdir); out.mkdir(parents=True, exist_ok=True)
+def scramble(buf, key):
+    """App-area scrambler; its own inverse. Block at offset o uses key ^ (o >> 2)."""
+    return b"".join(enc(buf[o:o + 32], key ^ (o >> 2)) for o in range(0, len(buf), 32))
+
+
+def boot_table(image):
     hdr = enc(image[:32], 0xFFFF)
     if crc16(hdr[2:]) != int.from_bytes(hdr[:2], "little"):
         raise ValueError("bad header CRC (not a jl_isd.bin?)")
-    boot = [r for r in (record(enc(image[a:a + 32], 0xFFFF)) for a in range(32, 32 * 5, 32))]
-    boot = boot[:next(i for i, r in enumerate(boot) if r["last"]) + 1]
+    return table(bytes(enc(image[:4096 + 32], 0xFFFF)[:32]) + b"".join(enc(image[a:a + 32], 0xFFFF) for a in range(32, 4096 + 32, 32)), 32)
+
+
+def unpack(image, outdir, key=None):
+    out = Path(outdir); out.mkdir(parents=True, exist_ok=True)
+    boot = boot_table(image)
     base = next(r["offset"] for r in boot if r["name"] == "app_dir_head")
     for r in boot:
         if r["name"] in ("uboot.boot", "isd_config.ini"):
@@ -89,8 +99,7 @@ def unpack(image, outdir, key=None):
             (out / r["name"]).write_bytes(data)
     if key is None:
         key = find_key(image[base:base + 32])
-    plain = b"".join(enc(image[base + o:base + o + 32], key ^ (o >> 2))
-                     for o in range(0, len(image) - base, 32))
+    plain = scramble(image[base:], key)
     (out / "app_area.bin").write_bytes(plain)
     app = table(plain, 0, skip_first_last=True)
     for r in app:
@@ -109,7 +118,51 @@ def unpack(image, outdir, key=None):
     return info
 
 
+def pack(base_image, app_bin, cfg_tool, key):
+    """Return base_image with app.bin (and cfg_tool.bin unless None) replaced. Everything else is kept byte for byte."""
+    base = next(r["offset"] for r in boot_table(base_image) if r["name"] == "app_dir_head")
+    plain = scramble(base_image[base:], key)
+    recs = {r["name"]: (i, r) for i, r in enumerate(table(plain, 0, skip_first_last=True))}  # raises on a wrong key
+    head, app, cfg, vm = (recs[n][1] for n in ("app_area_head", "app.bin", "cfg_tool.bin", "VM"))
+    if cfg_tool is None:
+        cfg_tool = plain[cfg["offset"]:cfg["offset"] + cfg["size"]]
+    cfg_off = app["offset"] + len(app_bin)
+    end = cfg_off + len(cfg_tool)
+    # partition offsets are physical flash offsets (VM starts exactly at the end of these images)
+    if base + end > min(vm["offset"], len(base_image)):
+        raise ValueError(f"app + cfg_tool end at flash {base + end:#x}, past the VM partition at {vm['offset']:#x}")
+    out = bytearray(plain)
+    out[end:head["size"]] = b"\xff" * max(0, head["size"] - end)  # space freed by a smaller app
+    out[app["offset"]:cfg_off] = app_bin
+    out[cfg_off:end] = cfg_tool
+    for name, off, data in (("app.bin", app["offset"], app_bin), ("cfg_tool.bin", cfg_off, cfg_tool)):
+        patch(out, recs[name][0], off, len(data), crc16(data))
+    # the head's data CRC covers everything after its own record; its offset field stays as in the base
+    patch(out, 0, head["offset"], end, crc16(out[32:end]))
+    return base_image[:base] + scramble(bytes(out), key)
+
+
+def patch(buf, idx, offset, size, data_crc):
+    a = idx * 32
+    struct.pack_into("<HII", buf, a + 2, data_crc, offset, size)
+    buf[a:a + 2] = crc16(buf[a + 2:a + 32]).to_bytes(2, "little")
+
+
+def main_pack(argv):
+    opt = lambda f: argv[argv.index(f) + 1] if f in argv else None
+    pos = [a for i, a in enumerate(argv) if not a.startswith("--") and (i == 0 or not argv[i - 1].startswith("--"))]
+    if len(pos) != 3:
+        sys.exit(__doc__)
+    base = Path(pos[0]).read_bytes()
+    base_off = next(r["offset"] for r in boot_table(base) if r["name"] == "app_dir_head")
+    key = int(opt("--key"), 16) if opt("--key") else find_key(base[base_off:base_off + 32])
+    cfg = Path(opt("--cfg")).read_bytes() if opt("--cfg") else None
+    Path(pos[2]).write_bytes(pack(base, Path(pos[1]).read_bytes(), cfg, key))
+
+
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["pack"]:
+        main_pack(sys.argv[2:]); sys.exit()
     if len(sys.argv) < 3:
         sys.exit(__doc__)
     k = int(sys.argv[sys.argv.index("--key") + 1], 16) if "--key" in sys.argv else None
