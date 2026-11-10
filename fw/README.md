@@ -72,6 +72,76 @@ flags here follow the design ("encryption required, MITM not") and standard HOGP
 Board-dependent values come from the SDK board config (now `board_ac632n_demo_cfg.h`; the E2 board patch replaces it): key numbers
 (AD key values), wakeup pin (`port0` = the AD key pin), low-power mode, LED, battery measurement, `TCFG_HID_AUTO_SHUTDOWN_TIME`.
 
+## USB update entry
+
+The vendor updater can only reflash the E2 if the running app takes it into the boot area's USB HID updater
+(`uboot.boot`, kept unchanged by `jlimg.py pack`). This firmware keeps that entry. Nothing below has run on a device.
+Addresses are in the zoom-phone-tablet `app.bin` (load `0x1E00120`), Ghidra project `ghidra/project/E2`.
+
+What is built (`patches/0004-usb-update-entry.patch`, `src/e2_update.c`, `src/kc_update_cmd.c`):
+
+- `board_ac632n_demo_cfg.h`: `TCFG_PC_ENABLE 1`, `USB_DEVICE_CLASS_CONFIG (CDC_CLASS)` (CDC-ACM only), `usb_std_class_def.h`
+  defaults (CDC endpoints 0x83 interrupt / 0x04 out / 0x84 in). `TCFG_PC_ENABLE` also makes `TCFG_OTG_MODE` = slave, which
+  registers the SDK's `"otg"` detector already present in `board_ac632n_demo.c`. The board Makefile gets the two new sources.
+- `e2_update_device_event()` (called for every `SYS_DEVICE_EVENT`): passes the event to the SDK's `pc_device_event_handler`
+  (`usb_start()` on the detector's "host in", `usb_stop()` on "out"), then replaces the SDK's echo demo receive callback with
+  `cdc_rx`. `cdc_rx` (USB interrupt) feeds each byte to `kc_update_cmd_feed` and calls `e2_update_enter()` on a match.
+- `kc_update_cmd_feed`: true exactly when `{"o":"JUMPBOOT"}` is complete; JSON whitespace between tokens, any packet split,
+  any bytes before it. One byte of state. Host-tested (`test_update_cmd`).
+- `e2_update_enter()`: `memcpy(0x800, "ubootZst", 8)`, `hw_mmu_disable()`, `cpu_reset()` (= `p33_soft_reset`).
+- `e2_update_boot_keys()` (first call in `app_start`, before BLE): if SDK keys 1 and 2 are both pressed and stay pressed for
+  3000 ms, `e2_update_enter()`. Reads the two pins from the board's `iokey_list` with `gpio_read`, as `io_get_key_value` does.
+  On the demo config keys 1 and 2 are AD keys, so this is compiled out (an AD ladder gives one value for two keys). A
+  throw-away build with `TCFG_IOKEY_ENABLE 1` compiled it as intended.
+
+Observed (static):
+
+- Updater (`app.asar`, `electron/service/device.js`, `common/SerialPortManager.js`): opens the first serial port with VID `4C4A`
+  PID `4155` at 460800 baud, writes `JSON.stringify({"o":"JUMPBOOT"})` (16 bytes, one write), runs `UbootHid.exe` 3 s later
+  (20 tries, JUMPBOOT sent again at try 10). "Connected" means only that the port opened. The UI sends `{"o":"get","t":
+  "battery"|"mac"|"firmware"}` every second until it has a battery value, but only shows the replies; the update button does
+  not depend on them. So `get` is not answered.
+- Stock CDC receive callback (`0x1E02FC2`, set by stock `usb_start` `0x1E05964` through `cdc_set_wakeup_handler`): reads one
+  packet (<= 64 bytes); unless it starts with `S` (segment header), copies it to `0x24AC`, runs the JSON handler, then calls
+  `FUN_01E02562` if `strstr(packet, "JUMPBOOT")` or if the first byte is `0xAA`.
+- `FUN_01E02562`: `memcpy(0x800, 0x84A, 8)` (`.data`, = `ubootZst`), `call 0x1E14822` (`JL_MMU->CON &= ~BIT(0)`), `goto 0x4462`
+  (`[0x1A18A0] |= 0x30`). Our SDK libraries: `hw_mmu_disable` (`system.a`, memory.c) and `p33_soft_reset` (`cpu.a`, power_hw.c)
+  are exactly these two operations. No SDK routine in this tree writes `ubootZst`; `go_mask_usb_updata` (msd_upgrade.c) is a
+  different entry (ROM tag `usb\xedc\x81g\xef` via `nvram_set_boot_state`), so the sequence is written out in `e2_update_enter`.
+- RAM `0x800` is where the mask ROM keeps its own reset tags (`nvram_boot_state`/`nvram_set_boot_state`, rom.lst `0x100378`):
+  it compares 8 bytes there with its usb/uart/OTA tags and leaves anything else alone. `uboot.boot` contains the strings
+  `uboot\xa5ok`, `ubootZst`, `uboot_zone` next to each other (LZ4 sequences at file offset `0x21BC`), as the stock `.data` at
+  `0x842`/`0x84A` does.
+- Stock USB: device descriptor `12 01 10 01 00 00 00 40 4a 4c 55 41 00 01 01 02 03 01`, IAD + CDC-ACM template, strings
+  "Jieli Technology" / "USB Composite Device", config header `09 02 .. 01 00 a0 32`: byte-identical to ours. Stock
+  `cdc_desc_config` (`0x1E01696`) patches in EP `0x83`/`0x04`/`0x84` like ours; `cdc_hdl` is 0x74 bytes (no interrupt-EP mutex,
+  `CDC_INTR_EP_ENABLE 0`). Serial number: both use the flash UUID (`get_iserialnumber_str`).
+- Stock starts USB with a direct `usb_start` in both app paths (`0x1E0A17A` when `JL_PORTA->IN` bit 7 is set, then an `idle`
+  app; `0x1E05B8E` after BT init otherwise). Its `otg_data` (RAM `0x858`) has `usb_dev_en = 0`. In this SDK's `otg.c`
+  (`cpu.a`, read as IR) a port with its `usb_dev_en` bit clear is set to state 7 and `usb_dev_idle_query` reports state > 2
+  as busy, so that setting never lets the chip power down. Ours enables both ports, so the detector runs and the
+  low-power target is busy only while a host is attached (slave states).
+- Stock keys: AD key on PA1 (`adkey_data` `0x1E18EF4`, values 0, 4, 5, 6) and IO keys (`iokey_list` `0x1E18E8A`): key 1 = PB7,
+  key 2 = PA0, key 3 = PA2, all to GND, with a combination remap BIT(1)|BIT(2) -> key 7 (`MULT_KEY_ENABLE`).
+
+Inferred:
+
+- uboot enters its HID updater when it finds `ubootZst` at `0x800` after the reset, and RAM `0x800` survives the soft reset
+  (the ROM's own tags rely on that). Not read in uboot code.
+- The OTG detector reports a PC host on the E2's USB0 as it does on Jieli boards; then `usb_dev_lp_target` keeps the chip awake
+  and the CDC device stays up while BLE advertises or is connected.
+
+Unknown / for the E2 board patch:
+
+- Whether detection still works after `sleep_enter_callback` -> `close_gpio(0)` puts DP/DM in high impedance while no host is
+  attached (the detector re-drives the pins every 50 ms; not checked).
+- What the E2 has on USB1 (DP1/DM1): the detector polls those pins too. Clearing that bit instead would stop power-down (above).
+- The key entry needs keys 1 and 2 as IO keys in the E2 `iokey_list` (stock: PB7, PA0, to GND). PA0 is the demo board's UART0
+  TX (`CONFIG_DEBUG_ENABLE` is on): the E2 board patch must move or turn off the debug TX before PA0 is a key.
+- Not reproduced from stock, on purpose: the `0xAA`-first-byte trigger, `JUMPBOOT` anywhere in a packet, the `get`/`set`
+  protocol, and stock `setup_arch`'s clearing of a `uboot\xa5ok` tag at `0x800` (`0x1E090D8`; it runs after `boot_info_init`
+  has rewritten byte `0x800`, so it rarely matches; effect unknown).
+
 ## BD19 library capabilities
 
 What the prebuilt BD19 Bluetooth libraries can do for the Kindle. The `.a` members are LLVM bitcode; symbols were listed with

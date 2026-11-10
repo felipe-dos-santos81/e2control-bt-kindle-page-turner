@@ -21,6 +21,7 @@
 #include "kc_proto.h"
 #include "kc_keys.h"
 #include "app_kindle_send.h"
+#include "e2_update.h"
 
 #if CONFIG_APP_KINDLE_CLICK
 
@@ -174,6 +175,7 @@ static void set_soft_poweroff(void)
 
 static void app_start(void)
 {
+    e2_update_boot_keys();          /* keys 1 + 2 held at power-on: update mode, before BLE starts */
     log_info("kindle click, BLE only");
     clk_set("sys", BT_NORMAL_HZ);
     bt_pll_para(TCFG_CLOCK_OSC_HZ, clk_get("sys"), 0, 0);
@@ -228,6 +230,7 @@ static int event_handler(struct application *app, struct sys_event *event)
         return 0;
 
     case SYS_DEVICE_EVENT:
+        e2_update_device_event(event);  /* USB host in/out: CDC device for the update command */
         if ((u32)event->arg == DEVICE_EVENT_FROM_POWER) {
             return app_power_event_handler(&event->u.dev, set_soft_poweroff);
         }
