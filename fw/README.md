@@ -24,8 +24,9 @@ raw q32s code linked for entry `0x1E00120` (first bytes `eeff xxxx xxxx edff`).
 
 ## Kindle Click app
 
-`src/app_kindle_click.c` is the app (started from `apps/hid/examples/keypage/app_keypage.c`); `src/kc_*.c` are the
-SDK-free protocol, key and link units that `make fw-test` tests on the host. `0003` changes, all on top of 0001:
+`src/app_kindle_click.c` is the app (keys, BLE events, advertising, power; started from `apps/hid/examples/keypage/app_keypage.c`),
+`src/app_kindle_send.c` the report path (press queue and 20 ms send tick); `src/kc_*.c` are the SDK-free protocol, key and link
+units that `make fw-test` tests on the host. (The SDK-bound files must not be named `kc_*.c`: `make fw-test` compiles that glob.) `0003` changes, all on top of 0001:
 
 | Where (SDK path) | Change |
 |---|---|
@@ -34,14 +35,39 @@ SDK-free protocol, key and link units that `make fw-test` tests on the host. `00
 | `apps/hid/board/bd19/Makefile` | the four `kindle_click/*.c` files and `-I apps/hid/kindle_click` |
 | `apps/hid/config/lib_btstack_config.c` | `config_le_sm_sub_sc_enable = CONFIG_BT_SM_SUPPORT_ENABLE` (no effect on BD19, see below) |
 | `apps/common/include/bt_common.h` | new `COMMON_EVENT_BLE_CCCD_WRITE`, posted to the app on every CCCD write |
-| `apps/hid/modules/bt/ble_hogp.c` | ADV_IND data = `kc_adv_data` exactly, name only in the scan response; interval 32 x 0.625 ms = 20 ms; `PAIR_RECONNECT_ADV_EN 0` (always undirected ADV_IND; stock sent 2 x 1.28 s of high-duty `ADV_DIRECT_IND` to the stored peer address after boot and after a supervision timeout); Firmware Revision `e2kc-0.1`; SM auth `SM_AUTHREQ_BONDING` only (stock also asked for MITM); a Battery Level notification right after the peer enables its CCCD; the CCCD-write event |
-| `apps/hid/modules/bt/ble_hogp_profile.h` | PnP ID value `READ | DYNAMIC` instead of `READ | AUTHENTICATION_REQUIRED | DYNAMIC` (BD19 `att_db.c` answers Insufficient Authentication (0x05) for that flag unless the link has a MITM key, which Just Works never gives) |
+| `apps/hid/modules/bt/ble_hogp.c` | ADV_IND data = `kc_adv_data` exactly, name only in the scan response; interval 32 x 0.625 ms = 20 ms; `PAIR_RECONNECT_ADV_EN 0` (always undirected ADV_IND; stock sent 2 x 1.28 s of high-duty `ADV_DIRECT_IND` to the stored peer address after boot and after a supervision timeout); Firmware Revision `e2kc-0.1`; SM auth `SM_AUTHREQ_BONDING` only (stock also asked for MITM); Battery Level notifications only on an encrypted link (`sm_encryption_key_size`): right after the peer enables the CCCD, after encryption on a reconnect, and on change; the CCCD-write event; handle references cut down to the new table (one input report, no output report, no `ae40`/`ae30` transfer channels) |
+| `apps/hid/modules/bt/ble_hogp_profile.h` | Replaced by the output of `fw/att_table.py gen` (see "ATT table" below) |
 
 Unchanged stock settings that the Kindle needs: `slave_security_auto_req = 0`, `slave_set_wait_security = 0`,
 `IO_CAPABILITY_NO_INPUT_NO_OUTPUT` (`hogp_sm_init_config`), `CONFIG_BT_SM_SUPPORT_ENABLE 1`, fixed public address derived from
 the BT MAC (`btstack_ble_start_before_init`, `same_address = 0`), Battery Level notify on change (60 s poll, `TCFG_SYS_LVD_EN`).
-PnP ID and report map are handed in from the app (`le_hogp_set_PNP_info`, `ble_init_cfg_t.report_map`). The stock GATT table
-is kept: besides report ID 1 it still lists input reports 2-6, an output report, a boot mouse report and Jieli's `ae40`/`ae30` services.
+PnP ID and report map are handed in from the app (`le_hogp_set_PNP_info`, `ble_init_cfg_t.report_map`).
+
+### ATT table
+
+`fw/att_table.py gen` writes `ble_hogp_profile.h` (the table and its handle `#define`s) from a short service list;
+`fw/att_table.py dump FILE` walks a table in a `.h` or in a binary (`fw/out/app.bin`, a vendor `app.bin`) and prints handle, UUID,
+flags and value. To change the table: edit `SERVICES` in the script, run `gen` into `fw/sdk/.../ble_hogp_profile.h` on a prepared
+tree, regenerate 0003, and compare `dump fw/out/app.bin` with `dump` of the header. Contents:
+
+- GAP `1800` (name, appearance, PPCP), GATT `1801` (Service Changed + CCCD), Device Information `180a` (as stock; PnP ID `READ`
+  only, stock had `AUTHENTICATION_REQUIRED`, which BD19 `att_db.c` answers with Insufficient Authentication (0x05) unless the
+  link has a MITM key, and Just Works never gives one), Battery `180f` (Level read/notify + CCCD).
+- HID `1812`: Protocol Mode (`01`), one Input Report (ID 1, Report Reference `01 01`) with its CCCD, Report Map, HID Information,
+  HID Control Point. Values and the CCCD need encryption (flags `0x6000`: key size >= 7, the SM minimum); MITM is not required;
+  the Report Reference stays readable without encryption, as in the stock and vendor tables.
+- Dropped from stock: input reports 2-6, the output report (ID 1, keyboard LEDs), Boot Mouse Input `2a33`, Jieli `ae40`
+  (`ae41`/`ae42` transfer channel, only weak log handlers in this app) and `ae30` (`ae01`-`ae05`, `ae10`, the SDK test/data
+  channel; `ae10` only fed a weak log handler). `ae00` (RCSP, BLE OTA) is only in the stock table under `RCSP_BTMATE_EN`, which is 0
+  (`CONFIG_APP_OTA_ENABLE` off); the generated header `#error`s if RCSP is turned on.
+
+Vendor reference (observed, `dump` of the vendor Kindle build `2387LJ` for AC636N, table at file offset 0x1e547): GAP, Battery,
+`ae30` (`ae01` write / `ae02` notify), HID with Information, Report Map, Control Point, Protocol Mode, Input Report ID 1 + CCCD +
+`01 01`, the output report `01 02`, input reports 2-6, boot keyboard in/out (`2a22`/`2a32`), boot mouse `2a33`, Device Information
+(PnP with `AUTHENTICATION_REQUIRED`), and RCSP `ae00`; no GATT `1801`. None of its HID entries needs encryption. Inferred from
+that: the Kindle starts pairing on its own, and the extra reports do not stop it. Not shown by it: whether the Kindle reads
+PnP ID successfully on that build (AC636N has a different library) or reacts well to Insufficient Encryption; the encryption
+flags here follow the design ("encryption required, MITM not") and standard HOGP behaviour, untested on the Kindle.
 
 Board-dependent values come from the SDK board config (now `board_ac632n_demo_cfg.h`; the E2 board patch replaces it): key numbers
 (AD key values), wakeup pin (`port0` = the AD key pin), low-power mode, LED, battery measurement, `TCFG_HID_AUTO_SHUTDOWN_TIME`.
@@ -83,7 +109,14 @@ What the prebuilt BD19 Bluetooth libraries can do for the Kindle. The `.a` membe
 **Other facts used here**
 - `sys_timer_get_ms()` (`system.a(timer.c.o)`) is `jiffies * jiffies_unit` (`jiffies_unit = 10`), so it counts in 10 ms steps and wraps
   modulo 2^32 consistently; `jiffies_msec()` masks `jiffies` to 27 bits and would break the `kc_link` subtraction at the wrap.
-- ATT permission `AUTHENTICATION_REQUIRED` (`0x0400`) needs `att_connection.authenticated` (`att_db.c`, `att_validate_security`); see the PnP ID change above.
+- ATT permissions (`att_db.c`, `att_validate_security`, observed): `AUTHENTICATION_REQUIRED` (`0x0400`) needs `att_connection.authenticated`
+  (set from `sm_authenticated`, error 0x05 otherwise); the top 4 flag bits are the required key size - 1 (error 0x0F if the link is
+  not encrypted, 0x0C if the key is shorter).
+- Sending with `ATT_OP_AUTO_READ_CCC` (`btstack.a(att_send.c)`, `user_data_att_send`, observed): reads the CCC of `att_handle + 1`
+  and, if notify/indicate is not enabled, returns -93 (`GATT_CMD_USE_CCC_FAIL`) without queuing anything. So the table must keep
+  each CCCD right after its value (the generator does), and the report path treats -93 as "not subscribed" and keeps the press
+  until the next CCCD write. Inferred: `ble_user_cmd_prepare` passes that value back unchanged (le_gatt_common.c decodes it with
+  the same error table).
 - Clearing the bond uses the SDK's own sequence from `app_mouse.c`: `ble_module_enable(0)`, `le_hogp_set_pair_allow()` (hogp pair info and
   `ble_list_clear_all()`, both in VM), `ble_module_enable(1)`.
 

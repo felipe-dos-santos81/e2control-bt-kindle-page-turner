@@ -42,6 +42,12 @@ static void test_keys(void) {
     assert(kc_key_action(3, 2, KC_CLEAR_BOND_HOLDS) == KC_CLEAR_BOND);
     assert(kc_key_action(3, 2, KC_CLEAR_BOND_HOLDS + 1) == KC_NONE);
     assert(kc_key_action(1, 1, 0) == KC_NONE && kc_key_action(1, 4, 0) == KC_NONE && kc_key_action(9, 0, 0) == KC_NONE);
+    /* multi-click: count from kc_key_repeat, action from the CLICK event */
+    assert(kc_key_repeat(1, 0) == 1 && kc_key_repeat(2, 0) == 1);
+    assert(kc_key_repeat(2, 4) == 2 && kc_key_repeat(2, 5) == 3 && kc_key_repeat(1, 6) == 4);
+    assert(kc_key_repeat(1, 7) == KC_QUEUE_LEN);                  /* five clicks capped at the queue */
+    assert(kc_key_repeat(1, 1) == 0 && kc_key_repeat(1, 2) == 0 && kc_key_repeat(1, 3) == 0 && kc_key_repeat(1, 8) == 0);
+    assert(kc_key_repeat(3, 0) == 0 && kc_key_repeat(3, 4) == 0 && kc_key_repeat(9, 4) == 0);   /* click has no action */
 }
 static void test_link(void) {
     kc_link_t l; kc_link_reset(&l);

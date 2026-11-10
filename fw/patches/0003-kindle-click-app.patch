@@ -25,7 +25,7 @@ index 96e411d..91a51ff 100644
      it.name = "idle";
      it.action = ACTION_IDLE_MAIN;
 diff --git a/apps/hid/board/bd19/Makefile b/apps/hid/board/bd19/Makefile
-index ebd4e04..6855f1f 100644
+index ebd4e04..d82e1ea 100644
 --- a/apps/hid/board/bd19/Makefile
 +++ b/apps/hid/board/bd19/Makefile
 @@ -169,6 +169,7 @@ INCLUDES := \
@@ -36,11 +36,12 @@ index ebd4e04..6855f1f 100644
  	-I../../../../apps/hid/board/bd19 \
  	-I../../../../apps/common \
  	-I../../../../apps/common/include \
-@@ -280,6 +281,10 @@ c_SRC_FILES := \
+@@ -280,6 +281,11 @@ c_SRC_FILES := \
  	../../../../apps/hid/examples/keyboard/app_keyboard.c \
  	../../../../apps/hid/examples/keyfob/app_keyfob.c \
  	../../../../apps/hid/examples/keypage/app_keypage.c \
 +	../../../../apps/hid/kindle_click/app_kindle_click.c \
++	../../../../apps/hid/kindle_click/app_kindle_send.c \
 +	../../../../apps/hid/kindle_click/kc_keys.c \
 +	../../../../apps/hid/kindle_click/kc_link.c \
 +	../../../../apps/hid/kindle_click/kc_proto.c \
@@ -106,7 +107,7 @@ index d6c817b..44d27d6 100644
  
  #include "btcontroller_mode.h"
 diff --git a/apps/hid/modules/bt/ble_hogp.c b/apps/hid/modules/bt/ble_hogp.c
-index cc3e83e..b840853 100644
+index cc3e83e..be0e6bd 100644
 --- a/apps/hid/modules/bt/ble_hogp.c
 +++ b/apps/hid/modules/bt/ble_hogp.c
 @@ -44,6 +44,7 @@
@@ -143,7 +144,31 @@ index cc3e83e..b840853 100644
  static const char Software_Revision_String[] = "0.0.1";
  static const u8 System_ID[] = {0, 0, 0, 0, 0, 0, 0, 0};
  
-@@ -228,7 +230,7 @@ static const sm_cfg_t hogp_sm_init_config = {
+@@ -178,7 +180,6 @@ static u8 PnP_ID[] = {PNP_VID_SOURCE, PNP_VID & 0xFF, PNP_VID >> 8, PNP_PID & 0x
+ /* static const u8 hid_information[] = {0x11, 0x01, 0x00, 0x01}; */
+ /* static const u8 hid_information[] = {0x01, 0x01, 0x00, 0x03}; */
+ static const u8 hid_information[] = {0x11, 0x01, 0x00, 0x03};
+-static const u8 hid_information1[] = {0x00, 0x00, 0x00, 0x00};
+ 
+ static  u8 *report_map; //描述符
+ static  u16 report_map_size;//描述符大小
+@@ -200,13 +201,13 @@ static void (*le_hogp_output_callback)(u8 *buffer, u16 size) = NULL;
+ //------------------------------------------------------
+ static void __hogp_resume_all_ccc_enable(u8 update_request);
+ static void __check_report_map_change(void);
+-void ble_hid_transfer_channel_recieve(u8 *packet, u16 size);
+-void ble_hid_transfer_channel_recieve1(u8 *packet, u16 size);
+ static uint16_t hogp_att_read_callback(hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t offset, uint8_t *buffer, uint16_t buffer_size);
+ static int hogp_att_write_callback(hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t transaction_mode, uint16_t offset, uint8_t *buffer, uint16_t buffer_size);
+ static int hogp_event_packet_handler(int event, u8 *packet, u16 size, u8 *ext_param);
+ static void hogp_adv_config_set(void);
+ static u8 hid_get_vbat_handle(void);
++static void __hogp_notify_battery(void);
++extern int sm_encryption_key_size(u16 con_handle);
+ //------------------------------------------------------
+ 
+ static u8 multi_dev_adv_flag = 0; /*多地址设备切换广播*/
+@@ -228,7 +229,7 @@ static const sm_cfg_t hogp_sm_init_config = {
      .io_capabilities = IO_CAPABILITY_NO_INPUT_NO_OUTPUT,
  #endif
  
@@ -152,7 +177,71 @@ index cc3e83e..b840853 100644
      .min_key_size = 7,
      .max_key_size = 16,
      .sm_cb_packet_handler = NULL,
-@@ -875,6 +877,7 @@ static int hogp_att_write_callback(hci_con_handle_t connection_handle, uint16_t
+@@ -414,12 +415,6 @@ static void __hogp_resume_all_ccc_enable(u8 update_request)
+ {
+     log_info("__hogp_resume_all_ccc_enable\n");
+     ble_gatt_server_characteristic_ccc_set(hogp_con_handle, ATT_CHARACTERISTIC_2a4d_01_CLIENT_CONFIGURATION_HANDLE, ATT_OP_NOTIFY);
+-    ble_gatt_server_characteristic_ccc_set(hogp_con_handle, ATT_CHARACTERISTIC_2a4d_02_CLIENT_CONFIGURATION_HANDLE, ATT_OP_NOTIFY);
+-    ble_gatt_server_characteristic_ccc_set(hogp_con_handle, ATT_CHARACTERISTIC_2a4d_04_CLIENT_CONFIGURATION_HANDLE, ATT_OP_NOTIFY);
+-    ble_gatt_server_characteristic_ccc_set(hogp_con_handle, ATT_CHARACTERISTIC_2a4d_05_CLIENT_CONFIGURATION_HANDLE, ATT_OP_NOTIFY);
+-    ble_gatt_server_characteristic_ccc_set(hogp_con_handle, ATT_CHARACTERISTIC_2a4d_06_CLIENT_CONFIGURATION_HANDLE, ATT_OP_NOTIFY);
+-    ble_gatt_server_characteristic_ccc_set(hogp_con_handle, ATT_CHARACTERISTIC_2a4d_07_CLIENT_CONFIGURATION_HANDLE, ATT_OP_NOTIFY);
+-    ble_gatt_server_characteristic_ccc_set(hogp_con_handle, ATT_CHARACTERISTIC_ae42_01_CLIENT_CONFIGURATION_HANDLE, ATT_OP_NOTIFY);
+     ble_gatt_server_characteristic_ccc_set(hogp_con_handle, ATT_CHARACTERISTIC_2a19_01_CLIENT_CONFIGURATION_HANDLE, ATT_OP_NOTIFY);
+ 
+ #if RCSP_BTMATE_EN
+@@ -532,6 +527,7 @@ static int hogp_event_packet_handler(int event, u8 *packet, u16 size, u8 *ext_pa
+             }
+ 
+             __hogp_resume_all_ccc_enable(1);
++            __hogp_notify_battery(); //Kindle Click: the Kindle takes the level from notifications only
+             //回连时,从配对表中获取
+             u8 tmp_buf[6];
+             u8 remote_type = 0;
+@@ -786,30 +782,9 @@ static uint16_t hogp_att_read_callback(hci_con_handle_t connection_handle, uint1
+         }
+         break;
+ 
+-    case ATT_CHARACTERISTIC_ae10_01_VALUE_HANDLE:
+-        att_value_len = sizeof(hid_information1);
+-        if ((offset >= att_value_len) || (offset + buffer_size) > att_value_len) {
+-            log_info("len is err");
+-            break;
+-        }
+-        if (buffer) {
+-            memcpy(buffer, &hid_information1[offset], buffer_size);
+-            att_value_len = buffer_size;
+-            put_buf(buffer, att_value_len);
+-        }
+-        /* __hogp_send_connetion_update_deal(connection_handle); */
+-        break;
+-
+-
+     case ATT_CHARACTERISTIC_2a05_01_CLIENT_CONFIGURATION_HANDLE:
+     case ATT_CHARACTERISTIC_2a19_01_CLIENT_CONFIGURATION_HANDLE:
+     case ATT_CHARACTERISTIC_2a4d_01_CLIENT_CONFIGURATION_HANDLE:
+-    case ATT_CHARACTERISTIC_2a4d_02_CLIENT_CONFIGURATION_HANDLE:
+-    case ATT_CHARACTERISTIC_2a4d_04_CLIENT_CONFIGURATION_HANDLE:
+-    case ATT_CHARACTERISTIC_2a4d_05_CLIENT_CONFIGURATION_HANDLE:
+-    case ATT_CHARACTERISTIC_2a4d_06_CLIENT_CONFIGURATION_HANDLE:
+-    case ATT_CHARACTERISTIC_2a4d_07_CLIENT_CONFIGURATION_HANDLE:
+-    case ATT_CHARACTERISTIC_ae42_01_CLIENT_CONFIGURATION_HANDLE:
+         if (buffer) {
+             buffer[0] = ble_gatt_server_characteristic_ccc_get(hogp_con_handle, handle);
+             buffer[1] = 0;
+@@ -863,18 +838,12 @@ static int hogp_att_write_callback(hci_con_handle_t connection_handle, uint16_t
+     case ATT_CHARACTERISTIC_2a00_01_VALUE_HANDLE:
+         break;
+ 
+-    case ATT_CHARACTERISTIC_2a4d_03_VALUE_HANDLE:
+-        put_buf(buffer, buffer_size);           //键盘led灯状态
+-        if (le_hogp_output_callback) {
+-            le_hogp_output_callback(buffer, buffer_size);
+-        }
+-        break;
+-
+     case ATT_CHARACTERISTIC_2a05_01_CLIENT_CONFIGURATION_HANDLE:
+         ble_gatt_server_characteristic_ccc_set(connection_handle, handle, buffer[0]);
          if (buffer[0]) {
              __check_report_map_change();
          }
@@ -160,22 +249,60 @@ index cc3e83e..b840853 100644
          break;
  
  #if RCSP_BTMATE_EN
-@@ -910,6 +913,14 @@ static int hogp_att_write_callback(hci_con_handle_t connection_handle, uint16_t
+@@ -891,13 +860,7 @@ static int hogp_att_write_callback(hci_con_handle_t connection_handle, uint16_t
+ #endif
+ #endif
+ 
+-    case ATT_CHARACTERISTIC_ae42_01_CLIENT_CONFIGURATION_HANDLE:
+     case ATT_CHARACTERISTIC_2a4d_01_CLIENT_CONFIGURATION_HANDLE:
+-    case ATT_CHARACTERISTIC_2a4d_02_CLIENT_CONFIGURATION_HANDLE:
+-    case ATT_CHARACTERISTIC_2a4d_04_CLIENT_CONFIGURATION_HANDLE:
+-    case ATT_CHARACTERISTIC_2a4d_05_CLIENT_CONFIGURATION_HANDLE:
+-    case ATT_CHARACTERISTIC_2a4d_06_CLIENT_CONFIGURATION_HANDLE:
+-    case ATT_CHARACTERISTIC_2a4d_07_CLIENT_CONFIGURATION_HANDLE:
+         ble_op_latency_skip(hogp_con_handle, LATENCY_SKIP_INTERVAL_MIN); //
+     case ATT_CHARACTERISTIC_2a19_01_CLIENT_CONFIGURATION_HANDLE:
+         __hogp_send_connetion_update_deal(hogp_con_handle);
+@@ -910,6 +873,11 @@ static int hogp_att_write_callback(hci_con_handle_t connection_handle, uint16_t
          }
  #endif
          ble_gatt_server_characteristic_ccc_set(hogp_con_handle, handle, buffer[0]);
 +        //Kindle Click: the Kindle takes the level from notifications only, so send one as soon as it subscribes
 +        if (handle == ATT_CHARACTERISTIC_2a19_01_CLIENT_CONFIGURATION_HANDLE && buffer[0]) {
-+            if (get_vbat_percent_call) {
-+                hid_battery_level = hid_get_vbat_handle();
-+            }
-+            ble_comm_att_send_data(hogp_con_handle, ATT_CHARACTERISTIC_2a19_01_VALUE_HANDLE, &hid_battery_level, 1, ATT_OP_NOTIFY);
++            __hogp_notify_battery();
 +        }
 +        __ble_bt_evnet_post(SYS_BT_EVENT_FORM_COMMON, COMMON_EVENT_BLE_CCCD_WRITE, NULL, handle);
          break;
  
  #if RCSP_BTMATE_EN
-@@ -961,32 +972,12 @@ static int hogp_att_write_callback(hci_con_handle_t connection_handle, uint16_t
+@@ -921,26 +889,6 @@ static int hogp_att_write_callback(hci_con_handle_t connection_handle, uint16_t
+         break;
+ #endif
+ 
+-    case ATT_CHARACTERISTIC_ae41_01_VALUE_HANDLE:
+-        ble_hid_transfer_channel_recieve(buffer, buffer_size);
+-        break;
+-
+-    case ATT_CHARACTERISTIC_ae10_01_VALUE_HANDLE:
+-        tmp16 = sizeof(hid_information1);
+-        if ((offset >= tmp16) || (offset + buffer_size) > tmp16) {
+-            break;
+-        }
+-
+-        log_info("cur_state:");
+-        put_buf(hid_information1, tmp16);
+-
+-        memcpy(&hid_information1[offset], buffer, buffer_size);
+-
+-        log_info("new_state:");
+-        put_buf(hid_information1, tmp16);
+-        ble_hid_transfer_channel_recieve1(hid_information1, tmp16);
+-        break;
+-
+     default:
+         break;
+     }
+@@ -961,32 +909,12 @@ static int hogp_att_write_callback(hci_con_handle_t connection_handle, uint16_t
  static u8  adv_name_ok;   //name 优先存放在ADV包
  static int hogp_make_set_adv_data(u8 adv_reconnect)
  {
@@ -214,23 +341,579 @@ index cc3e83e..b840853 100644
      hogp_server_adv_config.adv_data = hogp_adv_data;
      return 0;
  }
+@@ -1299,7 +1227,8 @@ static void hid_battery_timer_handler(void *priev)
+         /* tmp_val = (tmp_val +10)%101; */
+         if (hid_battery_level != tmp_val) {
+             hid_battery_level = tmp_val;
+-            if (ble_gatt_server_characteristic_ccc_get(hogp_con_handle, ATT_CHARACTERISTIC_2a19_01_CLIENT_CONFIGURATION_HANDLE)) {
++            if (ble_gatt_server_characteristic_ccc_get(hogp_con_handle, ATT_CHARACTERISTIC_2a19_01_CLIENT_CONFIGURATION_HANDLE)
++                && sm_encryption_key_size(hogp_con_handle)) { //Kindle Click: never before encryption
+                 log_info("notify battery: %d\n", hid_battery_level);
+                 ble_comm_att_send_data(hogp_con_handle, ATT_CHARACTERISTIC_2a19_01_VALUE_HANDLE, &hid_battery_level, 1, ATT_OP_AUTO_READ_CCC);
+             }
+@@ -1308,6 +1237,18 @@ static void hid_battery_timer_handler(void *priev)
+ #endif // TCFG_SYS_LVD_EN
+ }
+ 
++//Kindle Click: one Battery Level notification now, only on an encrypted link with the CCCD enabled
++static void __hogp_notify_battery(void)
++{
++    if (!hogp_con_handle || !sm_encryption_key_size(hogp_con_handle)) {
++        return;
++    }
++    if (get_vbat_percent_call) {
++        hid_battery_level = hid_get_vbat_handle();
++    }
++    ble_comm_att_send_data(hogp_con_handle, ATT_CHARACTERISTIC_2a19_01_VALUE_HANDLE, &hid_battery_level, 1, ATT_OP_AUTO_READ_CCC);
++}
++
+ /*************************************************************************************************/
+ /*!
+  *  \brief      模块初始化
+@@ -1660,12 +1601,7 @@ void ble_set_pair_addrinfo(u8 *addr_info)
+ //profile 支持的report id
+ static const u16 report_id_handle_table[] = {
+     0,
+-    HID_REPORT_ID_01_SEND_HANDLE,
+-    HID_REPORT_ID_02_SEND_HANDLE,
+-    HID_REPORT_ID_03_SEND_HANDLE,
+-    HID_REPORT_ID_04_SEND_HANDLE,
+-    HID_REPORT_ID_05_SEND_HANDLE,
+-    HID_REPORT_ID_06_SEND_HANDLE,
++    HID_REPORT_ID_01_SEND_HANDLE, //Kindle Click: the only input report
+ };
+ 
+ /*************************************************************************************************/
+@@ -1681,7 +1617,7 @@ static const u16 report_id_handle_table[] = {
+ /*************************************************************************************************/
+ int ble_hid_data_send(u8 report_id, u8 *data, u16 len)
+ {
+-    if (report_id == 0 || report_id > 6) {
++    if (report_id == 0 || report_id >= sizeof(report_id_handle_table) / sizeof(report_id_handle_table[0])) {
+         log_info("report_id %d,err!!!\n", report_id);
+         return -1;
+     }
+@@ -1710,75 +1646,6 @@ void ble_hid_key_deal_test(u16 key_msg)
+     }
+ }
+ 
+-/*************************************************************************************************/
+-/*!
+- *  \brief
+- *
+- *  \param      [in]
+- *
+- *  \return
+- *
+- *  \note
+- */
+-/*************************************************************************************************/
+-int ble_hid_transfer_channel_send(u8 *packet, u16 size)
+-{
+-    /* log_info("transfer_tx(%d):", size); */
+-    /* log_info_hexdump(packet, size); */
+-    return ble_comm_att_send_data(hogp_con_handle, ATT_CHARACTERISTIC_ae42_01_VALUE_HANDLE, packet, size, ATT_OP_AUTO_READ_CCC);
+-}
+-
+-/*************************************************************************************************/
+-/*!
+- *  \brief
+- *
+- *  \param      [in]
+- *
+- *  \return
+- *
+- *  \note
+- */
+-/*************************************************************************************************/
+-int ble_hid_transfer_channel_send1(u8 *packet, u16 size)
+-{
+-    /* log_info("transfer_tx(%d):", size); */
+-    /* log_info_hexdump(packet, size); */
+-    return ble_comm_att_send_data(hogp_con_handle, ATT_CHARACTERISTIC_ae10_01_VALUE_HANDLE, packet, size, ATT_OP_AUTO_READ_CCC);
+-}
+-
+-/*************************************************************************************************/
+-/*!
+- *  \brief
+- *
+- *  \param      [in]
+- *
+- *  \return
+- *
+- *  \note
+- */
+-/*************************************************************************************************/
+-void __attribute__((weak)) ble_hid_transfer_channel_recieve(u8 *packet, u16 size)
+-{
+-    log_info("transfer_rx(%d):", size);
+-    log_info_hexdump(packet, size);
+-    //ble_hid_transfer_channel_send(packet,size);//for test
+-}
+-/*************************************************************************************************/
+-/*!
+- *  \brief
+- *
+- *  \param      [in]
+- *
+- *  \return
+- *
+- *  \note
+- */
+-/*************************************************************************************************/
+-void __attribute__((weak)) ble_hid_transfer_channel_recieve1(u8 *packet, u16 size)
+-{
+-    log_info("transfer_rx1(%d):", size);
+-    log_info_hexdump(packet, size);
+-}
+ 
+ /*************************************************************************************************/
+ /*!
 diff --git a/apps/hid/modules/bt/ble_hogp_profile.h b/apps/hid/modules/bt/ble_hogp_profile.h
-index 49d9deb..1b2af96 100644
+index 49d9deb..8d40a39 100644
 --- a/apps/hid/modules/bt/ble_hogp_profile.h
 +++ b/apps/hid/modules/bt/ble_hogp_profile.h
-@@ -112,11 +112,11 @@ static const uint8_t hogp_profile_data[] = {
-     // 0x001c VALUE 2a2a READ | DYNAMIC
-     0x08, 0x00, 0x02, 0x01, 0x1c, 0x00, 0x2a, 0x2a,
+@@ -1,350 +1,49 @@
+-// binary representation
+-// attribute size in bytes (16), flags(16), handle (16), uuid (16/128), value(...)
+-
++// Generated by fw/att_table.py gen (Kindle Click app). Do not edit by hand.
++// Dump with: fw/att_table.py dump <this file>
+ #ifndef _BLE_HOGP_PROFILE_H
+ #define _BLE_HOGP_PROFILE_H
  
+ #include <stdint.h>
+ #include "app_config.h"
+ 
+-//
+-// gatt profile include file, generated by jieli gatt_inc_generator.exe
+-//
+-
+-/*
+-生成profile工具的链接下载
+-https://gitee.com/Jieli-Tech/fw-AC63_BT_SDK/tree/master/sdk_tools/BLE%20Profile%E5%B7%A5%E5%85%B7
+-profile cfg 文件参考工具包里面目录hogp_cfg
+- */
+-static const uint8_t hogp_profile_data[] = {
+-    //////////////////////////////////////////////////////
+-    //
+-    // 0x0001 PRIMARY_SERVICE  1800
+-    //
+-    //////////////////////////////////////////////////////
+-    0x0a, 0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x28, 0x00, 0x18,
+-
+-    /* CHARACTERISTIC,  2a00, READ | DYNAMIC, */
+-    // 0x0002 CHARACTERISTIC 2a00 READ | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x02, 0x00, 0x03, 0x28, 0x02, 0x03, 0x00, 0x00, 0x2a,
+-    // 0x0003 VALUE 2a00 READ | DYNAMIC
+-    0x08, 0x00, 0x02, 0x01, 0x03, 0x00, 0x00, 0x2a,
+-
+-    /* CHARACTERISTIC,  2a01, READ | DYNAMIC, */
+-    // 0x0004 CHARACTERISTIC 2a01 READ | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x04, 0x00, 0x03, 0x28, 0x02, 0x05, 0x00, 0x01, 0x2a,
+-    // 0x0005 VALUE 2a01 READ | DYNAMIC
+-    0x08, 0x00, 0x02, 0x01, 0x05, 0x00, 0x01, 0x2a,
+-
+-    /* CHARACTERISTIC,  2a04, READ | DYNAMIC, */
+-    // 0x0006 CHARACTERISTIC 2a04 READ | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x06, 0x00, 0x03, 0x28, 0x02, 0x07, 0x00, 0x04, 0x2a,
+-    // 0x0007 VALUE 2a04 READ | DYNAMIC
+-    0x08, 0x00, 0x02, 0x01, 0x07, 0x00, 0x04, 0x2a,
+-
+-    //////////////////////////////////////////////////////
+-    //
+-    // 0x0008 PRIMARY_SERVICE  1801
+-    //
+-    //////////////////////////////////////////////////////
+-    0x0a, 0x00, 0x02, 0x00, 0x08, 0x00, 0x00, 0x28, 0x01, 0x18,
+-
+-    /* CHARACTERISTIC,  2a05, INDICATE, */
+-    // 0x0009 CHARACTERISTIC 2a05 INDICATE
+-    0x0d, 0x00, 0x02, 0x00, 0x09, 0x00, 0x03, 0x28, 0x20, 0x0a, 0x00, 0x05, 0x2a,
+-    // 0x000a VALUE 2a05 INDICATE
+-    0x08, 0x00, 0x20, 0x00, 0x0a, 0x00, 0x05, 0x2a,
+-    // 0x000b CLIENT_CHARACTERISTIC_CONFIGURATION
+-    0x0a, 0x00, 0x0a, 0x01, 0x0b, 0x00, 0x02, 0x29, 0x00, 0x00,
+-
+-    //////////////////////////////////////////////////////
+-    //
+-    // 0x000c PRIMARY_SERVICE  180a
+-    //
+-    //////////////////////////////////////////////////////
+-    0x0a, 0x00, 0x02, 0x00, 0x0c, 0x00, 0x00, 0x28, 0x0a, 0x18,
+-
+-    /* CHARACTERISTIC,  2a29, READ | DYNAMIC, */
+-    // 0x000d CHARACTERISTIC 2a29 READ | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x0d, 0x00, 0x03, 0x28, 0x02, 0x0e, 0x00, 0x29, 0x2a,
+-    // 0x000e VALUE 2a29 READ | DYNAMIC
+-    0x08, 0x00, 0x02, 0x01, 0x0e, 0x00, 0x29, 0x2a,
+-
+-    /* CHARACTERISTIC,  2a24, READ | DYNAMIC, */
+-    // 0x000f CHARACTERISTIC 2a24 READ | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x0f, 0x00, 0x03, 0x28, 0x02, 0x10, 0x00, 0x24, 0x2a,
+-    // 0x0010 VALUE 2a24 READ | DYNAMIC
+-    0x08, 0x00, 0x02, 0x01, 0x10, 0x00, 0x24, 0x2a,
+-
+-    /* CHARACTERISTIC,  2a25, READ | DYNAMIC, */
+-    // 0x0011 CHARACTERISTIC 2a25 READ | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x11, 0x00, 0x03, 0x28, 0x02, 0x12, 0x00, 0x25, 0x2a,
+-    // 0x0012 VALUE 2a25 READ | DYNAMIC
+-    0x08, 0x00, 0x02, 0x01, 0x12, 0x00, 0x25, 0x2a,
+-
+-    /* CHARACTERISTIC,  2a27, READ | DYNAMIC, */
+-    // 0x0013 CHARACTERISTIC 2a27 READ | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x13, 0x00, 0x03, 0x28, 0x02, 0x14, 0x00, 0x27, 0x2a,
+-    // 0x0014 VALUE 2a27 READ | DYNAMIC
+-    0x08, 0x00, 0x02, 0x01, 0x14, 0x00, 0x27, 0x2a,
+-
+-    /* CHARACTERISTIC,  2a26, READ | DYNAMIC, */
+-    // 0x0015 CHARACTERISTIC 2a26 READ | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x15, 0x00, 0x03, 0x28, 0x02, 0x16, 0x00, 0x26, 0x2a,
+-    // 0x0016 VALUE 2a26 READ | DYNAMIC
+-    0x08, 0x00, 0x02, 0x01, 0x16, 0x00, 0x26, 0x2a,
+-
+-    /* CHARACTERISTIC,  2a28, READ | DYNAMIC, */
+-    // 0x0017 CHARACTERISTIC 2a28 READ | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x17, 0x00, 0x03, 0x28, 0x02, 0x18, 0x00, 0x28, 0x2a,
+-    // 0x0018 VALUE 2a28 READ | DYNAMIC
+-    0x08, 0x00, 0x02, 0x01, 0x18, 0x00, 0x28, 0x2a,
+-
+-    /* CHARACTERISTIC,  2a23, READ | DYNAMIC, */
+-    // 0x0019 CHARACTERISTIC 2a23 READ | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x19, 0x00, 0x03, 0x28, 0x02, 0x1a, 0x00, 0x23, 0x2a,
+-    // 0x001a VALUE 2a23 READ | DYNAMIC
+-    0x08, 0x00, 0x02, 0x01, 0x1a, 0x00, 0x23, 0x2a,
+-
+-    /* CHARACTERISTIC,  2a2a, READ | DYNAMIC, */
+-    // 0x001b CHARACTERISTIC 2a2a READ | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x1b, 0x00, 0x03, 0x28, 0x02, 0x1c, 0x00, 0x2a, 0x2a,
+-    // 0x001c VALUE 2a2a READ | DYNAMIC
+-    0x08, 0x00, 0x02, 0x01, 0x1c, 0x00, 0x2a, 0x2a,
+-
 -    /* CHARACTERISTIC,  2a50, READ | AUTHENTICATION_REQUIRED | DYNAMIC, */
 -    // 0x001d CHARACTERISTIC 2a50 READ | AUTHENTICATION_REQUIRED | DYNAMIC
-+    /* CHARACTERISTIC,  2a50, READ | DYNAMIC, */
-+    // 0x001d CHARACTERISTIC 2a50 READ | DYNAMIC
-     0x0d, 0x00, 0x02, 0x00, 0x1d, 0x00, 0x03, 0x28, 0x02, 0x1e, 0x00, 0x50, 0x2a,
+-    0x0d, 0x00, 0x02, 0x00, 0x1d, 0x00, 0x03, 0x28, 0x02, 0x1e, 0x00, 0x50, 0x2a,
 -    // 0x001e VALUE 2a50 READ | AUTHENTICATION_REQUIRED | DYNAMIC
 -    0x08, 0x00, 0x02, 0x05, 0x1e, 0x00, 0x50, 0x2a,
-+    // 0x001e VALUE 2a50 READ | DYNAMIC (Kindle Click: was AUTHENTICATION_REQUIRED, which needs a MITM key; Just Works has none)
-+    0x08, 0x00, 0x02, 0x01, 0x1e, 0x00, 0x50, 0x2a,
+-
+-    //////////////////////////////////////////////////////
+-    //
+-    // 0x001f PRIMARY_SERVICE  180f
+-    //
+-    //////////////////////////////////////////////////////
+-    0x0a, 0x00, 0x02, 0x00, 0x1f, 0x00, 0x00, 0x28, 0x0f, 0x18,
+-
+-    /* CHARACTERISTIC,  2a19, READ | DYNAMIC | NOTIFY, */
+-    // 0x0020 CHARACTERISTIC 2a19 READ | DYNAMIC | NOTIFY
+-    0x0d, 0x00, 0x02, 0x00, 0x20, 0x00, 0x03, 0x28, 0x12, 0x21, 0x00, 0x19, 0x2a,
+-    // 0x0021 VALUE 2a19 READ | DYNAMIC | NOTIFY
+-    0x08, 0x00, 0x12, 0x01, 0x21, 0x00, 0x19, 0x2a,
+-    // 0x0022 CLIENT_CHARACTERISTIC_CONFIGURATION
+-    0x0a, 0x00, 0x0a, 0x01, 0x22, 0x00, 0x02, 0x29, 0x00, 0x00,
+-
+-    //////////////////////////////////////////////////////
+-    //
+-    // 0x0023 PRIMARY_SERVICE  1812
+-    //
+-    //////////////////////////////////////////////////////
+-    0x0a, 0x00, 0x02, 0x00, 0x23, 0x00, 0x00, 0x28, 0x12, 0x18,
+-
+-    /* CHARACTERISTIC,  2a4e, READ | WRITE_WITHOUT_RESPONSE,01 */
+-    // 0x0024 CHARACTERISTIC 2a4e READ | WRITE_WITHOUT_RESPONSE
+-    0x0d, 0x00, 0x02, 0x00, 0x24, 0x00, 0x03, 0x28, 0x06, 0x25, 0x00, 0x4e, 0x2a,
+-    // 0x0025 VALUE 2a4e READ | WRITE_WITHOUT_RESPONSE 01
+-    0x09, 0x00, 0x06, 0x00, 0x25, 0x00, 0x4e, 0x2a, 0x01,
+-
+-    /* CHARACTERISTIC,  2a4d, READ | WRITE | NOTIFY | DYNAMIC, */
+-    // 0x0026 CHARACTERISTIC 2a4d READ | WRITE | NOTIFY | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x26, 0x00, 0x03, 0x28, 0x1a, 0x27, 0x00, 0x4d, 0x2a,
+-    // 0x0027 VALUE 2a4d READ | WRITE | NOTIFY | DYNAMIC
+-    0x08, 0x00, 0x1a, 0x01, 0x27, 0x00, 0x4d, 0x2a,
+-    // 0x0028 CLIENT_CHARACTERISTIC_CONFIGURATION
+-    0x0a, 0x00, 0x0a, 0x01, 0x28, 0x00, 0x02, 0x29, 0x00, 0x00,
+-
+-    /* 0x0029 REPORT_REFERENCE,01,01 */
+-    0x0a, 0x00, 0x02, 0x00, 0x29, 0x00, 0x08, 0x29, 0x01, 0x01,
+-
+-    /* CHARACTERISTIC,  2a4d, READ | WRITE | NOTIFY | DYNAMIC, */
+-    // 0x002a CHARACTERISTIC 2a4d READ | WRITE | NOTIFY | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x2a, 0x00, 0x03, 0x28, 0x1a, 0x2b, 0x00, 0x4d, 0x2a,
+-    // 0x002b VALUE 2a4d READ | WRITE | NOTIFY | DYNAMIC
+-    0x08, 0x00, 0x1a, 0x01, 0x2b, 0x00, 0x4d, 0x2a,
+-    // 0x002c CLIENT_CHARACTERISTIC_CONFIGURATION
+-    0x0a, 0x00, 0x0a, 0x01, 0x2c, 0x00, 0x02, 0x29, 0x00, 0x00,
+-
+-    /* 0x002d REPORT_REFERENCE,02,01 */
+-    0x0a, 0x00, 0x02, 0x00, 0x2d, 0x00, 0x08, 0x29, 0x02, 0x01,
+-
+-    /* CHARACTERISTIC,  2a4d, READ | WRITE | WRITE_WITHOUT_RESPONSE | DYNAMIC, */
+-    // 0x002e CHARACTERISTIC 2a4d READ | WRITE | WRITE_WITHOUT_RESPONSE | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x2e, 0x00, 0x03, 0x28, 0x0e, 0x2f, 0x00, 0x4d, 0x2a,
+-    // 0x002f VALUE 2a4d READ | WRITE | WRITE_WITHOUT_RESPONSE | DYNAMIC
+-    0x08, 0x00, 0x0e, 0x01, 0x2f, 0x00, 0x4d, 0x2a,
+-
+-    /* 0x0030 REPORT_REFERENCE,01,02 */
+-    0x0a, 0x00, 0x02, 0x00, 0x30, 0x00, 0x08, 0x29, 0x01, 0x02,
+-
+-    /* CHARACTERISTIC,  2a4d, READ | WRITE | NOTIFY | DYNAMIC, */
+-    // 0x0031 CHARACTERISTIC 2a4d READ | WRITE | NOTIFY | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x31, 0x00, 0x03, 0x28, 0x1a, 0x32, 0x00, 0x4d, 0x2a,
+-    // 0x0032 VALUE 2a4d READ | WRITE | NOTIFY | DYNAMIC
+-    0x08, 0x00, 0x1a, 0x01, 0x32, 0x00, 0x4d, 0x2a,
+-    // 0x0033 CLIENT_CHARACTERISTIC_CONFIGURATION
+-    0x0a, 0x00, 0x0a, 0x01, 0x33, 0x00, 0x02, 0x29, 0x00, 0x00,
+-
+-    /* 0x0034 REPORT_REFERENCE,03,01 */
+-    0x0a, 0x00, 0x02, 0x00, 0x34, 0x00, 0x08, 0x29, 0x03, 0x01,
+-
+-    /* CHARACTERISTIC,  2a4d, READ | WRITE | NOTIFY | DYNAMIC, */
+-    // 0x0035 CHARACTERISTIC 2a4d READ | WRITE | NOTIFY | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x35, 0x00, 0x03, 0x28, 0x1a, 0x36, 0x00, 0x4d, 0x2a,
+-    // 0x0036 VALUE 2a4d READ | WRITE | NOTIFY | DYNAMIC
+-    0x08, 0x00, 0x1a, 0x01, 0x36, 0x00, 0x4d, 0x2a,
+-    // 0x0037 CLIENT_CHARACTERISTIC_CONFIGURATION
+-    0x0a, 0x00, 0x0a, 0x01, 0x37, 0x00, 0x02, 0x29, 0x00, 0x00,
+-
+-    /* 0x0038 REPORT_REFERENCE,04,01 */
+-    0x0a, 0x00, 0x02, 0x00, 0x38, 0x00, 0x08, 0x29, 0x04, 0x01,
+-
+-    /* CHARACTERISTIC,  2a4d, READ | WRITE | NOTIFY | DYNAMIC, */
+-    // 0x0039 CHARACTERISTIC 2a4d READ | WRITE | NOTIFY | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x39, 0x00, 0x03, 0x28, 0x1a, 0x3a, 0x00, 0x4d, 0x2a,
+-    // 0x003a VALUE 2a4d READ | WRITE | NOTIFY | DYNAMIC
+-    0x08, 0x00, 0x1a, 0x01, 0x3a, 0x00, 0x4d, 0x2a,
+-    // 0x003b CLIENT_CHARACTERISTIC_CONFIGURATION
+-    0x0a, 0x00, 0x0a, 0x01, 0x3b, 0x00, 0x02, 0x29, 0x00, 0x00,
+-
+-    /* 0x003c REPORT_REFERENCE,05,01 */
+-    0x0a, 0x00, 0x02, 0x00, 0x3c, 0x00, 0x08, 0x29, 0x05, 0x01,
+-
+-    /* CHARACTERISTIC,  2a4d, READ | WRITE | NOTIFY | DYNAMIC, */
+-    // 0x003d CHARACTERISTIC 2a4d READ | WRITE | NOTIFY | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x3d, 0x00, 0x03, 0x28, 0x1a, 0x3e, 0x00, 0x4d, 0x2a,
+-    // 0x003e VALUE 2a4d READ | WRITE | NOTIFY | DYNAMIC
+-    0x08, 0x00, 0x1a, 0x01, 0x3e, 0x00, 0x4d, 0x2a,
+-    // 0x003f CLIENT_CHARACTERISTIC_CONFIGURATION
+-    0x0a, 0x00, 0x0a, 0x01, 0x3f, 0x00, 0x02, 0x29, 0x00, 0x00,
+-
+-    /* 0x0040 REPORT_REFERENCE,06,01 */
+-    0x0a, 0x00, 0x02, 0x00, 0x40, 0x00, 0x08, 0x29, 0x06, 0x01,
+-
+-    /* CHARACTERISTIC,  2a4b, READ | DYNAMIC, */
+-    // 0x0041 CHARACTERISTIC 2a4b READ | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x41, 0x00, 0x03, 0x28, 0x02, 0x42, 0x00, 0x4b, 0x2a,
+-    // 0x0042 VALUE 2a4b READ | DYNAMIC
+-    0x08, 0x00, 0x02, 0x01, 0x42, 0x00, 0x4b, 0x2a,
+-
+-    /* CHARACTERISTIC,  2a33, READ | WRITE | NOTIFY, */
+-    // 0x0043 CHARACTERISTIC 2a33 READ | WRITE | NOTIFY
+-    0x0d, 0x00, 0x02, 0x00, 0x43, 0x00, 0x03, 0x28, 0x1a, 0x44, 0x00, 0x33, 0x2a,
+-    // 0x0044 VALUE 2a33 READ | WRITE | NOTIFY
+-    0x08, 0x00, 0x1a, 0x00, 0x44, 0x00, 0x33, 0x2a,
+-    // 0x0045 CLIENT_CHARACTERISTIC_CONFIGURATION
+-    0x0a, 0x00, 0x0a, 0x01, 0x45, 0x00, 0x02, 0x29, 0x00, 0x00,
+-
+-    /* CHARACTERISTIC,  2a4a, READ | DYNAMIC, */
+-    // 0x0046 CHARACTERISTIC 2a4a READ | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x46, 0x00, 0x03, 0x28, 0x02, 0x47, 0x00, 0x4a, 0x2a,
+-    // 0x0047 VALUE 2a4a READ | DYNAMIC
+-    0x08, 0x00, 0x02, 0x01, 0x47, 0x00, 0x4a, 0x2a,
+-
+-    /* CHARACTERISTIC,  2a4c, WRITE_WITHOUT_RESPONSE | DYNAMIC, */
+-    // 0x0048 CHARACTERISTIC 2a4c WRITE_WITHOUT_RESPONSE | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x48, 0x00, 0x03, 0x28, 0x04, 0x49, 0x00, 0x4c, 0x2a,
+-    // 0x0049 VALUE 2a4c WRITE_WITHOUT_RESPONSE | DYNAMIC
+-    0x08, 0x00, 0x04, 0x01, 0x49, 0x00, 0x4c, 0x2a,
+-
+-    //////////////////////////////////////////////////////
+-    //
+-    // 0x004a PRIMARY_SERVICE  ae40
+-    //
+-    //////////////////////////////////////////////////////
+-    0x0a, 0x00, 0x02, 0x00, 0x4a, 0x00, 0x00, 0x28, 0x40, 0xae,
+-
+-    /* CHARACTERISTIC,  ae41, WRITE_WITHOUT_RESPONSE | DYNAMIC, */
+-    // 0x004b CHARACTERISTIC ae41 WRITE_WITHOUT_RESPONSE | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x4b, 0x00, 0x03, 0x28, 0x04, 0x4c, 0x00, 0x41, 0xae,
+-    // 0x004c VALUE ae41 WRITE_WITHOUT_RESPONSE | DYNAMIC
+-    0x08, 0x00, 0x04, 0x01, 0x4c, 0x00, 0x41, 0xae,
+-
+-    /* CHARACTERISTIC,  ae42, NOTIFY, */
+-    // 0x004d CHARACTERISTIC ae42 NOTIFY
+-    0x0d, 0x00, 0x02, 0x00, 0x4d, 0x00, 0x03, 0x28, 0x10, 0x4e, 0x00, 0x42, 0xae,
+-    // 0x004e VALUE ae42 NOTIFY
+-    0x08, 0x00, 0x10, 0x00, 0x4e, 0x00, 0x42, 0xae,
+-    // 0x004f CLIENT_CHARACTERISTIC_CONFIGURATION
+-    0x0a, 0x00, 0x0a, 0x01, 0x4f, 0x00, 0x02, 0x29, 0x00, 0x00,
+-
+-    //////////////////////////////////////////////////////
+-    //
+-    // 0x0050 PRIMARY_SERVICE  ae30
+-    //
+-    //////////////////////////////////////////////////////
+-    0x0a, 0x00, 0x02, 0x00, 0x50, 0x00, 0x00, 0x28, 0x30, 0xae,
+-
+-    /* CHARACTERISTIC,  ae01, WRITE_WITHOUT_RESPONSE | DYNAMIC, */
+-    // 0x0051 CHARACTERISTIC ae01 WRITE_WITHOUT_RESPONSE | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x51, 0x00, 0x03, 0x28, 0x04, 0x52, 0x00, 0x01, 0xae,
+-    // 0x0052 VALUE ae01 WRITE_WITHOUT_RESPONSE | DYNAMIC
+-    0x08, 0x00, 0x04, 0x01, 0x52, 0x00, 0x01, 0xae,
+-
+-    /* CHARACTERISTIC,  ae02, NOTIFY, */
+-    // 0x0053 CHARACTERISTIC ae02 NOTIFY
+-    0x0d, 0x00, 0x02, 0x00, 0x53, 0x00, 0x03, 0x28, 0x10, 0x54, 0x00, 0x02, 0xae,
+-    // 0x0054 VALUE ae02 NOTIFY
+-    0x08, 0x00, 0x10, 0x00, 0x54, 0x00, 0x02, 0xae,
+-    // 0x0055 CLIENT_CHARACTERISTIC_CONFIGURATION
+-    0x0a, 0x00, 0x0a, 0x01, 0x55, 0x00, 0x02, 0x29, 0x00, 0x00,
+-
+-    /* CHARACTERISTIC,  ae03, WRITE_WITHOUT_RESPONSE | DYNAMIC, */
+-    // 0x0056 CHARACTERISTIC ae03 WRITE_WITHOUT_RESPONSE | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x56, 0x00, 0x03, 0x28, 0x04, 0x57, 0x00, 0x03, 0xae,
+-    // 0x0057 VALUE ae03 WRITE_WITHOUT_RESPONSE | DYNAMIC
+-    0x08, 0x00, 0x04, 0x01, 0x57, 0x00, 0x03, 0xae,
+-
+-    /* CHARACTERISTIC,  ae04, NOTIFY, */
+-    // 0x0058 CHARACTERISTIC ae04 NOTIFY
+-    0x0d, 0x00, 0x02, 0x00, 0x58, 0x00, 0x03, 0x28, 0x10, 0x59, 0x00, 0x04, 0xae,
+-    // 0x0059 VALUE ae04 NOTIFY
+-    0x08, 0x00, 0x10, 0x00, 0x59, 0x00, 0x04, 0xae,
+-    // 0x005a CLIENT_CHARACTERISTIC_CONFIGURATION
+-    0x0a, 0x00, 0x0a, 0x01, 0x5a, 0x00, 0x02, 0x29, 0x00, 0x00,
+-
+-    /* CHARACTERISTIC,  ae05, INDICATE, */
+-    // 0x005b CHARACTERISTIC ae05 INDICATE
+-    0x0d, 0x00, 0x02, 0x00, 0x5b, 0x00, 0x03, 0x28, 0x20, 0x5c, 0x00, 0x05, 0xae,
+-    // 0x005c VALUE ae05 INDICATE
+-    0x08, 0x00, 0x20, 0x00, 0x5c, 0x00, 0x05, 0xae,
+-    // 0x005d CLIENT_CHARACTERISTIC_CONFIGURATION
+-    0x0a, 0x00, 0x0a, 0x01, 0x5d, 0x00, 0x02, 0x29, 0x00, 0x00,
+-
+-    /* CHARACTERISTIC,  ae10, READ | WRITE | DYNAMIC, */
+-    // 0x005e CHARACTERISTIC ae10 READ | WRITE | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x5e, 0x00, 0x03, 0x28, 0x0a, 0x5f, 0x00, 0x10, 0xae,
+-    // 0x005f VALUE ae10 READ | WRITE | DYNAMIC
+-    0x08, 0x00, 0x0a, 0x01, 0x5f, 0x00, 0x10, 0xae,
+-
+ #if RCSP_BTMATE_EN
+-    //////////////////////////////////////////////////////
+-    //
+-    // 0x0080 PRIMARY_SERVICE  ae00
+-    //
+-    //////////////////////////////////////////////////////
+-    0x0a, 0x00, 0x02, 0x00, 0x80, 0x00, 0x00, 0x28, 0x00, 0xae,
+-
+-    /* CHARACTERISTIC,  ae01, WRITE_WITHOUT_RESPONSE | DYNAMIC, */
+-    // 0x0081 CHARACTERISTIC ae01 WRITE_WITHOUT_RESPONSE | DYNAMIC
+-    0x0d, 0x00, 0x02, 0x00, 0x81, 0x00, 0x03, 0x28, 0x04, 0x82, 0x00, 0x01, 0xae,
+-    // 0x0082 VALUE ae01 WRITE_WITHOUT_RESPONSE | DYNAMIC
+-    0x08, 0x00, 0x04, 0x01, 0x82, 0x00, 0x01, 0xae,
+-
+-    /* CHARACTERISTIC,  ae02, NOTIFY, */
+-    // 0x0083 CHARACTERISTIC ae02 NOTIFY
+-    0x0d, 0x00, 0x02, 0x00, 0x83, 0x00, 0x03, 0x28, 0x10, 0x84, 0x00, 0x02, 0xae,
+-    // 0x0084 VALUE ae02 NOTIFY
+-    0x08, 0x00, 0x10, 0x00, 0x84, 0x00, 0x02, 0xae,
+-    // 0x0085 CLIENT_CHARACTERISTIC_CONFIGURATION
+-    0x0a, 0x00, 0x0a, 0x01, 0x85, 0x00, 0x02, 0x29, 0x00, 0x00,
++#error "this table has no RCSP (ae00) service; ble_hogp.c RCSP code needs it"
+ #endif
+-    // END
+-    0x00, 0x00,
++
++static const uint8_t hogp_profile_data[] = {
++    0x0a, 0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x28, 0x00, 0x18, 0x0d, 0x00, 0x02, 0x00, 0x02, 0x00,
++    0x03, 0x28, 0x02, 0x03, 0x00, 0x00, 0x2a, 0x08, 0x00, 0x02, 0x01, 0x03, 0x00, 0x00, 0x2a, 0x0d,
++    0x00, 0x02, 0x00, 0x04, 0x00, 0x03, 0x28, 0x02, 0x05, 0x00, 0x01, 0x2a, 0x08, 0x00, 0x02, 0x01,
++    0x05, 0x00, 0x01, 0x2a, 0x0d, 0x00, 0x02, 0x00, 0x06, 0x00, 0x03, 0x28, 0x02, 0x07, 0x00, 0x04,
++    0x2a, 0x08, 0x00, 0x02, 0x01, 0x07, 0x00, 0x04, 0x2a, 0x0a, 0x00, 0x02, 0x00, 0x08, 0x00, 0x00,
++    0x28, 0x01, 0x18, 0x0d, 0x00, 0x02, 0x00, 0x09, 0x00, 0x03, 0x28, 0x20, 0x0a, 0x00, 0x05, 0x2a,
++    0x08, 0x00, 0x20, 0x00, 0x0a, 0x00, 0x05, 0x2a, 0x0a, 0x00, 0x0a, 0x01, 0x0b, 0x00, 0x02, 0x29,
++    0x00, 0x00, 0x0a, 0x00, 0x02, 0x00, 0x0c, 0x00, 0x00, 0x28, 0x0a, 0x18, 0x0d, 0x00, 0x02, 0x00,
++    0x0d, 0x00, 0x03, 0x28, 0x02, 0x0e, 0x00, 0x29, 0x2a, 0x08, 0x00, 0x02, 0x01, 0x0e, 0x00, 0x29,
++    0x2a, 0x0d, 0x00, 0x02, 0x00, 0x0f, 0x00, 0x03, 0x28, 0x02, 0x10, 0x00, 0x24, 0x2a, 0x08, 0x00,
++    0x02, 0x01, 0x10, 0x00, 0x24, 0x2a, 0x0d, 0x00, 0x02, 0x00, 0x11, 0x00, 0x03, 0x28, 0x02, 0x12,
++    0x00, 0x25, 0x2a, 0x08, 0x00, 0x02, 0x01, 0x12, 0x00, 0x25, 0x2a, 0x0d, 0x00, 0x02, 0x00, 0x13,
++    0x00, 0x03, 0x28, 0x02, 0x14, 0x00, 0x27, 0x2a, 0x08, 0x00, 0x02, 0x01, 0x14, 0x00, 0x27, 0x2a,
++    0x0d, 0x00, 0x02, 0x00, 0x15, 0x00, 0x03, 0x28, 0x02, 0x16, 0x00, 0x26, 0x2a, 0x08, 0x00, 0x02,
++    0x01, 0x16, 0x00, 0x26, 0x2a, 0x0d, 0x00, 0x02, 0x00, 0x17, 0x00, 0x03, 0x28, 0x02, 0x18, 0x00,
++    0x28, 0x2a, 0x08, 0x00, 0x02, 0x01, 0x18, 0x00, 0x28, 0x2a, 0x0d, 0x00, 0x02, 0x00, 0x19, 0x00,
++    0x03, 0x28, 0x02, 0x1a, 0x00, 0x23, 0x2a, 0x08, 0x00, 0x02, 0x01, 0x1a, 0x00, 0x23, 0x2a, 0x0d,
++    0x00, 0x02, 0x00, 0x1b, 0x00, 0x03, 0x28, 0x02, 0x1c, 0x00, 0x2a, 0x2a, 0x08, 0x00, 0x02, 0x01,
++    0x1c, 0x00, 0x2a, 0x2a, 0x0d, 0x00, 0x02, 0x00, 0x1d, 0x00, 0x03, 0x28, 0x02, 0x1e, 0x00, 0x50,
++    0x2a, 0x08, 0x00, 0x02, 0x01, 0x1e, 0x00, 0x50, 0x2a, 0x0a, 0x00, 0x02, 0x00, 0x1f, 0x00, 0x00,
++    0x28, 0x0f, 0x18, 0x0d, 0x00, 0x02, 0x00, 0x20, 0x00, 0x03, 0x28, 0x12, 0x21, 0x00, 0x19, 0x2a,
++    0x08, 0x00, 0x12, 0x01, 0x21, 0x00, 0x19, 0x2a, 0x0a, 0x00, 0x0a, 0x01, 0x22, 0x00, 0x02, 0x29,
++    0x00, 0x00, 0x0a, 0x00, 0x02, 0x00, 0x23, 0x00, 0x00, 0x28, 0x12, 0x18, 0x0d, 0x00, 0x02, 0x00,
++    0x24, 0x00, 0x03, 0x28, 0x06, 0x25, 0x00, 0x4e, 0x2a, 0x09, 0x00, 0x06, 0x60, 0x25, 0x00, 0x4e,
++    0x2a, 0x01, 0x0d, 0x00, 0x02, 0x00, 0x26, 0x00, 0x03, 0x28, 0x12, 0x27, 0x00, 0x4d, 0x2a, 0x08,
++    0x00, 0x12, 0x61, 0x27, 0x00, 0x4d, 0x2a, 0x0a, 0x00, 0x0a, 0x61, 0x28, 0x00, 0x02, 0x29, 0x00,
++    0x00, 0x0a, 0x00, 0x02, 0x00, 0x29, 0x00, 0x08, 0x29, 0x01, 0x01, 0x0d, 0x00, 0x02, 0x00, 0x2a,
++    0x00, 0x03, 0x28, 0x02, 0x2b, 0x00, 0x4b, 0x2a, 0x08, 0x00, 0x02, 0x61, 0x2b, 0x00, 0x4b, 0x2a,
++    0x0d, 0x00, 0x02, 0x00, 0x2c, 0x00, 0x03, 0x28, 0x02, 0x2d, 0x00, 0x4a, 0x2a, 0x08, 0x00, 0x02,
++    0x61, 0x2d, 0x00, 0x4a, 0x2a, 0x0d, 0x00, 0x02, 0x00, 0x2e, 0x00, 0x03, 0x28, 0x04, 0x2f, 0x00,
++    0x4c, 0x2a, 0x08, 0x00, 0x04, 0x61, 0x2f, 0x00, 0x4c, 0x2a, 0x00, 0x00,
+ };
+-//
+-// characteristics <--> handles
+-//
++
+ #define ATT_CHARACTERISTIC_2a00_01_VALUE_HANDLE 0x0003
+ #define ATT_CHARACTERISTIC_2a01_01_VALUE_HANDLE 0x0005
+ #define ATT_CHARACTERISTIC_2a04_01_VALUE_HANDLE 0x0007
+@@ -364,52 +63,11 @@ static const uint8_t hogp_profile_data[] = {
+ #define ATT_CHARACTERISTIC_2a4e_01_VALUE_HANDLE 0x0025
+ #define ATT_CHARACTERISTIC_2a4d_01_VALUE_HANDLE 0x0027
+ #define ATT_CHARACTERISTIC_2a4d_01_CLIENT_CONFIGURATION_HANDLE 0x0028
+-#define ATT_CHARACTERISTIC_2a4d_02_VALUE_HANDLE 0x002b
+-#define ATT_CHARACTERISTIC_2a4d_02_CLIENT_CONFIGURATION_HANDLE 0x002c
+-#define ATT_CHARACTERISTIC_2a4d_03_VALUE_HANDLE 0x002f
+-#define ATT_CHARACTERISTIC_2a4d_04_VALUE_HANDLE 0x0032
+-#define ATT_CHARACTERISTIC_2a4d_04_CLIENT_CONFIGURATION_HANDLE 0x0033
+-#define ATT_CHARACTERISTIC_2a4d_05_VALUE_HANDLE 0x0036
+-#define ATT_CHARACTERISTIC_2a4d_05_CLIENT_CONFIGURATION_HANDLE 0x0037
+-#define ATT_CHARACTERISTIC_2a4d_06_VALUE_HANDLE 0x003a
+-#define ATT_CHARACTERISTIC_2a4d_06_CLIENT_CONFIGURATION_HANDLE 0x003b
+-#define ATT_CHARACTERISTIC_2a4d_07_VALUE_HANDLE 0x003e
+-#define ATT_CHARACTERISTIC_2a4d_07_CLIENT_CONFIGURATION_HANDLE 0x003f
+-#define ATT_CHARACTERISTIC_2a4b_01_VALUE_HANDLE 0x0042
+-#define ATT_CHARACTERISTIC_2a33_01_VALUE_HANDLE 0x0044
+-#define ATT_CHARACTERISTIC_2a33_01_CLIENT_CONFIGURATION_HANDLE 0x0045
+-#define ATT_CHARACTERISTIC_2a4a_01_VALUE_HANDLE 0x0047
+-#define ATT_CHARACTERISTIC_2a4c_01_VALUE_HANDLE 0x0049
+-#define ATT_CHARACTERISTIC_ae41_01_VALUE_HANDLE 0x004c
+-#define ATT_CHARACTERISTIC_ae42_01_VALUE_HANDLE 0x004e
+-#define ATT_CHARACTERISTIC_ae42_01_CLIENT_CONFIGURATION_HANDLE 0x004f
+-#define ATT_CHARACTERISTIC_ae01_01_VALUE_HANDLE 0x0052
+-#define ATT_CHARACTERISTIC_ae02_01_VALUE_HANDLE 0x0054
+-#define ATT_CHARACTERISTIC_ae02_01_CLIENT_CONFIGURATION_HANDLE 0x0055
+-#define ATT_CHARACTERISTIC_ae03_01_VALUE_HANDLE 0x0057
+-#define ATT_CHARACTERISTIC_ae04_01_VALUE_HANDLE 0x0059
+-#define ATT_CHARACTERISTIC_ae04_01_CLIENT_CONFIGURATION_HANDLE 0x005a
+-#define ATT_CHARACTERISTIC_ae05_01_VALUE_HANDLE 0x005c
+-#define ATT_CHARACTERISTIC_ae05_01_CLIENT_CONFIGURATION_HANDLE 0x005d
+-#define ATT_CHARACTERISTIC_ae10_01_VALUE_HANDLE 0x005f
+-
+-#if RCSP_BTMATE_EN
+-#define ATT_CHARACTERISTIC_ae01_01_VALUE_HANDLE 0x0082
+-#define ATT_CHARACTERISTIC_ae02_01_VALUE_HANDLE 0x0084
+-#define ATT_CHARACTERISTIC_ae02_01_CLIENT_CONFIGURATION_HANDLE 0x0085
+-#endif
++#define ATT_CHARACTERISTIC_2a4b_01_VALUE_HANDLE 0x002b
++#define ATT_CHARACTERISTIC_2a4a_01_VALUE_HANDLE 0x002d
++#define ATT_CHARACTERISTIC_2a4c_01_VALUE_HANDLE 0x002f
  
-     //////////////////////////////////////////////////////
-     //
+ //INPUT
+ #define HID_REPORT_ID_01_SEND_HANDLE    ATT_CHARACTERISTIC_2a4d_01_VALUE_HANDLE
+-#define HID_REPORT_ID_02_SEND_HANDLE    ATT_CHARACTERISTIC_2a4d_02_VALUE_HANDLE
+-#define HID_REPORT_ID_03_SEND_HANDLE    ATT_CHARACTERISTIC_2a4d_04_VALUE_HANDLE
+-#define HID_REPORT_ID_04_SEND_HANDLE    ATT_CHARACTERISTIC_2a4d_05_VALUE_HANDLE
+-#define HID_REPORT_ID_05_SEND_HANDLE    ATT_CHARACTERISTIC_2a4d_06_VALUE_HANDLE
+-#define HID_REPORT_ID_06_SEND_HANDLE    ATT_CHARACTERISTIC_2a4d_07_VALUE_HANDLE
+-
+-//OUTPUT
+-#define HID_REPORT_ID_01_RECIEVE_HANDLE    ATT_CHARACTERISTIC_2a4d_03_VALUE_HANDLE
+-
+ 
+ #endif
+-

@@ -1,4 +1,5 @@
-/* Kindle Click compatible page turner: SDK glue around kc_proto / kc_keys / kc_link.
+/* Kindle Click compatible page turner: keys, BLE events, advertising, power. The report path is
+ * app_kindle_send.c; the SDK-free units are kc_proto / kc_keys / kc_link.
  * Started from apps/hid/examples/keypage/app_keypage.c (power, auto power-off, BT start-up),
  * BLE only. The HOGP profile, advertising data and security settings live in
  * apps/hid/modules/bt/ble_hogp.c, changed by fw/patches/0003-kindle-click-app.patch.
@@ -19,7 +20,7 @@
 #include "gatt_common/le_gatt_common.h"
 #include "kc_proto.h"
 #include "kc_keys.h"
-#include "kc_link.h"
+#include "app_kindle_send.h"
 
 #if CONFIG_APP_KINDLE_CLICK
 
@@ -29,24 +30,14 @@
 #define LOG_INFO_ENABLE
 #include "debug.h"
 
-#define KC_TICK_MS          20
-/* sys_timer_get_ms() counts in 10 ms steps, so 40 here is always more than 30 ms of real time. */
-#define KC_KEY_DOWN_MS      40          /* key-down to key-up */
-#define KC_KEY_GAP_MS       40          /* key-up to the next key-down */
 #define KC_ADV_TIMEOUT_MS   (180 * 1000)
 
-extern int  ble_hid_data_send(u8 report_id, u8 *data, u16 len);
 extern int  ble_hid_is_connected(void);
 extern void ble_module_enable(u8 en);
 extern void le_hogp_set_PNP_info(const u8 *info);
 extern void le_hogp_set_pair_allow(void);
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 
-static kc_link_t   kl;
-static kc_action_t cur;             /* taken from the queue, key-down not sent yet */
-static u8          key_down;        /* key-down sent, key-up still to send */
-static u32         last_report_ms;
-static u16         tick_timer;
 static u16         adv_timer;
 static u16         holds[KEY_NUM_MAX];  /* consecutive HOLD events per SDK key number */
 static volatile u8 is_active;       /* 1: keep the system out of low power (soft power-off running) */
@@ -61,80 +52,6 @@ static ble_init_cfg_t kc_ble_config = {
     .report_map   = kc_report_map,
 };
 
-/*------------------------------------------------------------------ report path */
-static void tick(void *priv);
-
-static void tick_start(void)
-{
-    if (!tick_timer) {
-        tick_timer = sys_timer_add(NULL, tick, KC_TICK_MS);
-    }
-}
-
-static void tick_stop(void)
-{
-    if (tick_timer) {
-        sys_timer_del(tick_timer);
-        tick_timer = 0;
-    }
-}
-
-static int send_report(u8 *r)
-{
-    return ble_hid_data_send(KC_REPORT_ID, r, KC_REPORT_LEN);
-}
-
-/* Not ready; queued presses (and cur) are kept for the next link. */
-static void link_down(void)
-{
-    kc_link_on_disconnect(&kl);
-    key_down = 0;                   /* the host drops key state with the link */
-}
-
-/* Runs only while there is work: started by a press or a link event, stops itself when the
- * queue is drained on a ready link or when there is no link. One report per tick, so a press
- * is key-down, key-up >= KC_KEY_DOWN_MS later, next key-down >= KC_KEY_GAP_MS after that. */
-static void tick(void *priv)
-{
-    u8 r[KC_REPORT_LEN];
-    u32 now = sys_timer_get_ms();
-
-    if (!ble_hid_is_connected()) {
-        link_down();
-        tick_stop();
-        return;
-    }
-    if ((u32)(now - last_report_ms) < (key_down ? KC_KEY_DOWN_MS : KC_KEY_GAP_MS)) {
-        return;
-    }
-    if (key_down) {
-        kc_report_release(r);
-        if (send_report(r) == 0) {  /* on failure retry next tick: a lost key-up would leave the key held */
-            key_down = 0;
-            last_report_ms = now;
-        }
-        return;
-    }
-    if (cur == KC_NONE) {
-        cur = kc_link_pop(&kl, now);
-        if (cur == KC_NONE) {
-            if (kc_link_ready(&kl, now)) {
-                tick_stop();        /* ready and nothing queued */
-            }
-            return;
-        }
-    }
-    if (!kc_link_ready(&kl, now)) {
-        return;                     /* cur was taken on an earlier link */
-    }
-    kc_report_press(cur, r);
-    if (send_report(r) == 0) {
-        cur = KC_NONE;
-        key_down = 1;
-        last_report_ms = now;
-    }
-}
-
 /*------------------------------------------------------------------ advertising, bond */
 static void adv_timeout(void *priv)
 {
@@ -142,6 +59,7 @@ static void adv_timeout(void *priv)
     if (!ble_hid_is_connected() && ble_gatt_server_get_work_state() == BLE_ST_ADV) {
         log_info("adv timeout: stop, sleep until a key");
         ble_gatt_server_adv_enable(0);  /* nothing else keeps the chip awake: it powers down, a key wakes it */
+        kc_send_reset();                /* presses made while the Kindle was away are stale */
     }
 }
 
@@ -158,10 +76,7 @@ static void clear_bond(void)
     log_info("clear bond");
     ble_module_enable(0);           /* stop advertising, drop the link */
     le_hogp_set_pair_allow();       /* forget the peer: hogp pair info and the stack's bond list in VM */
-    kc_link_reset(&kl);
-    cur = KC_NONE;
-    key_down = 0;
-    tick_stop();
+    kc_send_reset();
     ble_module_enable(1);           /* advertise again, at once or when the disconnect completes */
 }
 
@@ -169,7 +84,7 @@ static void clear_bond(void)
 static void key_event(u8 key, u8 event)
 {
     u16 hold_count = 0;
-    u8 n = 1;
+    u8 n = kc_key_repeat(key, event);   /* a multi-click is that many clicks */
     kc_action_t a;
 
     if (key < KEY_NUM_MAX) {
@@ -182,29 +97,19 @@ static void key_event(u8 key, u8 event)
             holds[key] = 0;
         }
     }
-    /* The key driver reports quick repeats as one multi-click event; each click is a page. */
-    if (event >= KEY_EVENT_DOUBLE_CLICK && event <= KEY_EVENT_FIRTH_CLICK) {
-        n = event - KEY_EVENT_DOUBLE_CLICK + 2;
-        event = KEY_EVENT_CLICK;
-    }
 
     if (!ble_hid_is_connected() && ble_gatt_server_get_work_state() != BLE_ST_ADV) {
         log_info("key: advertise again");
         ble_gatt_server_adv_enable(1);
     }
 
-    a = kc_key_action(key, event, hold_count);
+    /* kc_key_action maps a multi-click event to KC_NONE: take the action from the CLICK event. */
+    a = n ? kc_key_action(key, KEY_EVENT_CLICK, 0) : kc_key_action(key, event, hold_count);
     if (a == KC_CLEAR_BOND) {
         clear_bond();
-        return;
+    } else if (a != KC_NONE) {
+        kc_send_press(a, n ? n : 1);
     }
-    if (a == KC_NONE) {
-        return;
-    }
-    while (n--) {
-        kc_link_push(&kl, a);     /* full queue: this press is dropped */
-    }
-    tick_start();
 }
 
 /*------------------------------------------------------------------ BLE events */
@@ -217,14 +122,13 @@ static void ble_status_event(u8 status)
         break;
     case BLE_ST_CONNECT:
         adv_timer_stop();
-        link_down();                /* new link: not ready until encrypted */
+        kc_send_link_down();        /* new link: not ready until encrypted */
         break;
     case BLE_ST_DISCONN:
-        link_down();
+        kc_send_link_down();
         break;
     case BLE_PRIV_PAIR_ENCRYPTION_CHANGE:
-        kc_link_on_encrypted(&kl, sys_timer_get_ms());
-        tick_start();
+        kc_send_encrypted();
         break;
     default:
         break;
@@ -235,8 +139,7 @@ static void common_event(struct bt_event *bt)
 {
     switch (bt->event) {
     case COMMON_EVENT_BLE_CCCD_WRITE:
-        kc_link_on_cccd_write(&kl, sys_timer_get_ms());
-        tick_start();
+        kc_send_cccd_written();
         break;
 #if TCFG_HID_AUTO_SHUTDOWN_TIME
     case COMMON_EVENT_SHUTDOWN_DISABLE:
@@ -275,7 +178,7 @@ static void app_start(void)
     clk_set("sys", BT_NORMAL_HZ);
     bt_pll_para(TCFG_CLOCK_OSC_HZ, clk_get("sys"), 0, 0);
 
-    kc_link_reset(&kl);
+    kc_send_reset();
     kc_ble_config.report_map_size = kc_report_map_len;
     btstack_ble_start_before_init(&kc_ble_config, 0);
     le_hogp_set_PNP_info(kc_pnp_id);
