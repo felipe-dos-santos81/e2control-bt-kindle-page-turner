@@ -1,6 +1,6 @@
 # Makefile for E2 Control — Firmware Reverse-Engineering Pipeline
 # Targets are numbered by pipeline stage:
-#   1a unpack → 1b rom → 2 ghidra → 3 score → 4 import → 5 image
+#   1a unpack → 1b rom → 2 ghidra → 3 score → 4 import → 5 firmware (build, test, image)
 SERVICE = E2 Control
 
 # Variables
@@ -15,7 +15,7 @@ variant ?= zoom-phone-tablet
         ghidra-install \
         ghidra-score \
         ghidra-import ghidra-import-all \
-        fw-image
+        fw-build fw-test fw-image
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -65,8 +65,19 @@ ghidra-import: firmware-unpack firmware-rom ghidra-install ## [STEP  4] Analyze 
 ghidra-import-all: firmware-unpack firmware-rom ghidra-install ## [STEP  4] Analyze every variant into ghidra/project/E2
 	for v in $(VARIANTS); do echo "Analyzing $$v..."; ghidra/import.sh extracted/$$v || exit 1; done
 
-# ── Stage 5 · Image (fw/out/app.bin → flashable image built on a stock one) ──
+# ── Stage 5 · Kindle firmware ──
+
+fw-build: ## [STEP  5] Build the firmware app.bin in the toolchain container
+	fw/build.sh
+
+fw-test: ## [STEP  5] Run the host tests for the Kindle Click logic
+	mkdir -p fw/out
+	$(CC) -std=c99 -Wall -Wextra -Werror -Ifw/src fw/src/kc_*.c fw/tests/test_kc.c -o fw/out/test_kc
+	fw/out/test_kc
+
+# fw/out/app.bin → flashable image built on a stock one
 
 fw-image: ## [STEP  5] Put fw/out/app.bin into a stock image, rest byte-identical (usage: make fw-image base=firmware/e2control-zoom-phone-tablet.bin)
 	@test -n "$(base)" || { echo "usage: make fw-image base=firmware/e2control-<variant>.bin"; exit 1; }
+	mkdir -p fw/out
 	$(PYTHON) tools/jlimg.py pack $(base) fw/out/app.bin fw/out/e2-kindle.bin

@@ -4,13 +4,19 @@ Builds the unmodified Jieli AC632N SDK HID "keypage" example (`apps/hid/board/bd
 board `CONFIG_BOARD_AC632N_DEMO`) in a `linux/amd64` container. Output: `fw/out/app.bin`,
 raw q32s code linked for entry `0x1E00120` (first bytes `eeff xxxx xxxx edff`).
 
-    fw/build.sh                       # clones the SDK into fw/sdk/ (gitignored), builds, writes fw/out/app.bin
+    fw/build.sh                       # (or `make fw-build`) clones the SDK into fw/sdk/ (gitignored), builds, writes fw/out/app.bin
     SDK_SRC=/path/to/clone fw/build.sh   # same, cloning from a local copy instead of GitHub
 
-- SDK: `https://github.com/Jieli-Tech/fw-AC63_BT_SDK` at commit `fdc018d`.
+- SDK: `https://github.com/Jieli-Tech/fw-AC63_BT_SDK` at commit `fdc018de81629e21e594d677cf05f87d288be0f0` (HEAD is verified after checkout).
+- `fw/sdk` is owned by the script: each run does `git reset --hard` to that commit, `git clean -fdx`, then applies every
+  `patches/*.patch` in name order. Do not keep work in it. Every build is therefore a full rebuild (about 20 s).
+- After the container step the script fails unless `app.bin` is 100-240 KB, starts `ee ff .. .. .. .. ed ff`, and the `.text`
+  section of `sdk.elf` starts at `0x1e00120`.
 - `patches/0001-select-keypage.patch` is applied to the clone: `CONFIG_APP_KEYBOARD 0`, `CONFIG_APP_KEYPAGE 1`.
-- Reference result (unmodified SDK + that patch): `app.bin` = 228176 bytes, sha256
-  `cfca215361f8d4c7efb772dee7d2477226a5510d2775daf8efa77ae583fff644`. The build is reproducible.
+- Reference result (unmodified SDK + that patch): `app.bin` = 228176 bytes, starts `ee ff d0 19 00 00 ed ff`. Three clean
+  builds gave the same size and differed in exactly one byte: the SDK logs `__DATE__`/`__TIME__` (`apps/hid/app_main.c`), so the
+  seconds digit of the build time is embedded and the SHA-256 changes on every build (examples: `dd2a3515...`, `ad57b50c...`,
+  `8c5a93c7...`). The build is not bit-for-bit reproducible.
 
 ## Toolchain
 
