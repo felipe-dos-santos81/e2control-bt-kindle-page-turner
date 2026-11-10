@@ -19,9 +19,24 @@ This is a short summary. A longer write-up was not produced.
 - So the custom firmware must keep the USB serial device and the `JUMPBOOT` command. This is plan Task 10, and it is required.
 - ROM download mode is the last line of defense. It needs extra hardware and is untested here.
 
+## Observed on the device (2026-11-10)
+
+Read-only `get` queries over `/dev/cu.usbmodem1301` at 460800 baud, with the stock firmware running. No other command was sent.
+
+| Query | Reply |
+|---|---|
+| `{"o":"get","t":"model"}` | `{"o":"getresult","t":"model","v":"JL_BT"}` |
+| `{"o":"get","t":"firmware"}` | `{"o":"getresult","t":"firmware","v":"V0.04"}` |
+| `{"o":"get","t":"mac"}` | `{"o":"getresult","t":"mac","v":"20-BE-95-A2-28-A0"}` |
+| `{"o":"get","t":"battery"}` | `{"o":"getresult","t":"battery","v":"100"}` |
+
+- The serial protocol works as described: JSON at 460800 baud. The port is silent until queried.
+- The MAC equals the Bluetooth address seen over BLE.
+- `V0.04` does not identify the variant: all five stock images contain the string `V0.04`.
+
 ## Open questions for the device step
 
-- Does the unit answer `{"o":"get",…}` queries, and does `JUMPBOOT` behave as described? What does the device look like on USB after the reset (VID/PID, interface)?
+- (Answered: the unit answers `get` queries, see above.) Does `JUMPBOOT` behave as described? What does the device look like on USB after the reset (VID/PID, interface)?
 - Can the boot-area HID updater **read** flash back? If not, a full backup needs ROM download mode.
 - Which stock variant does the unit run, and is its `uboot.boot` the same as in the vendor images?
 - Does ROM download mode start on this unit with a forced-download tool?
