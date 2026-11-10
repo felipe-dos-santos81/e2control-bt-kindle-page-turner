@@ -13,10 +13,13 @@ raw q32s code linked for entry `0x1E00120` (first bytes `eeff xxxx xxxx edff`).
 - After the container step the script fails unless `app.bin` is 100-240 KB, starts `ee ff .. .. .. .. ed ff`, and the `.text`
   section of `sdk.elf` starts at `0x1e00120`.
 - `patches/0001-select-keypage.patch` is applied to the clone: `CONFIG_APP_KEYBOARD 0`, `CONFIG_APP_KEYPAGE 1`.
-- Reference result (unmodified SDK + that patch): `app.bin` = 228176 bytes, starts `ee ff d0 19 00 00 ed ff`. Three clean
-  builds gave the same size and differed in exactly one byte: the SDK logs `__DATE__`/`__TIME__` (`apps/hid/app_main.c`), so the
-  seconds digit of the build time is embedded and the SHA-256 changes on every build (examples: `dd2a3515...`, `ad57b50c...`,
-  `8c5a93c7...`). The build is not bit-for-bit reproducible.
+- Reference result (unmodified SDK + that patch): `app.bin` = 228176 bytes, starts `ee ff d0 19 00 00 ed ff`.
+  Builds differ in the embedded build-time bytes: the SDK logs `__DATE__`/`__TIME__` (`apps/hid/app_main.c:184`) and
+  each `app.bin` contains `Nov 10 2026` plus the `HH:MM:SS` of its build. Three fresh builds (12:45:46, 12:46:00, 12:46:15)
+  were compared pairwise with `cmp -l`: 3, 3 and 2 differing bytes, all within offsets 109030-109033 (the time string).
+  So the SHA-256 changes on every build and the build is not bit-for-bit reproducible.
+- `build.sh` refuses to reset/clean unless `git -C fw/sdk rev-parse --show-toplevel` equals the physical path of `fw/sdk`,
+  so a missing or broken `fw/sdk/.git` cannot make it clean the parent project.
 
 ## Toolchain
 

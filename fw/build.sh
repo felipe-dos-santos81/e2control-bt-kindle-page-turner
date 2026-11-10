@@ -15,6 +15,11 @@ TOOLS=sdk/cpu/bd19/tools
 if [ ! -d sdk/.git ]; then
   git clone --no-checkout "${SDK_SRC:-https://github.com/Jieli-Tech/fw-AC63_BT_SDK}" sdk
 fi
+# Safety: reset --hard / clean -fdx below must only ever touch the SDK clone. If sdk/.git is missing or
+# broken, git would resolve to the parent project repo and clean -fdx would delete its ignored files.
+sdk_top=$(git -C sdk rev-parse --show-toplevel 2>/dev/null || true)
+[ -n "$sdk_top" ] && [ "$sdk_top" = "$(cd sdk && pwd -P)" ] || {
+  echo "refusing to reset: fw/sdk is not its own git repository (git toplevel: '${sdk_top:-none}')" >&2; exit 1; }
 git -C sdk cat-file -e "$SDK_REV^{commit}" 2>/dev/null || git -C sdk fetch -q origin "$SDK_REV"
 git -C sdk reset -q --hard "$SDK_REV"
 git -C sdk clean -q -fdx
