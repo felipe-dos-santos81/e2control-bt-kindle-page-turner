@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include "kc_proto.h"
 #include "kc_keys.h"
+#include "kc_link.h"
 
 static void test_adv(void) {
     static const uint8_t want[] = { 0x02,0x01,0x06,  0x05,0xFF,0x71,0x01,0x04,0x43,  0x03,0x03,0x12,0x18 };
@@ -42,6 +43,26 @@ static void test_keys(void) {
     assert(kc_key_action(3, 2, KC_CLEAR_BOND_HOLDS + 1) == KC_NONE);
     assert(kc_key_action(1, 1, 0) == KC_NONE && kc_key_action(1, 4, 0) == KC_NONE && kc_key_action(9, 0, 0) == KC_NONE);
 }
+static void test_link(void) {
+    kc_link_t l; kc_link_reset(&l);
+    assert(kc_link_push(&l, KC_NEXT_PAGE));
+    assert(kc_link_pop(&l, 0) == KC_NONE);                        /* not connected */
+    kc_link_on_encrypted(&l, 1000);
+    assert(!kc_link_ready(&l, 5999) && kc_link_ready(&l, 6000));  /* 5 s fallback */
+    kc_link_on_cccd_write(&l, 1500);
+    kc_link_on_cccd_write(&l, 1700);                              /* last CCCD write counts */
+    assert(!kc_link_ready(&l, 2499) && kc_link_ready(&l, 2500));
+    assert(kc_link_pop(&l, 2500) == KC_NEXT_PAGE);                /* held press sent once */
+    assert(kc_link_pop(&l, 2501) == KC_NONE);
+    for (int i = 0; i < KC_QUEUE_LEN; i++) assert(kc_link_push(&l, KC_PREV_PAGE));
+    assert(!kc_link_push(&l, KC_NEXT_PAGE));                      /* bounded */
+    kc_link_on_disconnect(&l);
+    assert(!kc_link_ready(&l, 99999) && kc_link_pop(&l, 99999) == KC_NONE);
+    kc_link_on_encrypted(&l, 0xFFFFFF00u);                        /* timer wrap */
+    kc_link_on_cccd_write(&l, 0xFFFFFF00u);
+    assert(kc_link_ready(&l, 0xFFFFFF00u + 800u));
+    assert(kc_link_pop(&l, 0xFFFFFF00u + 800u) == KC_PREV_PAGE);  /* kept across the disconnect */
+}
 
 int main(void) {
     test_adv();        puts("ok test_adv");
@@ -49,5 +70,6 @@ int main(void) {
     test_reports();    puts("ok test_reports");
     test_report_map(); puts("ok test_report_map");
     test_keys();       puts("ok test_keys");
+    test_link();       puts("ok test_link");
     return 0;
 }
