@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Jieli AC632N SDK HID "keypage" example in a linux/amd64 container.
+# Build the Kindle Click app (fw/src on the Jieli AC632N SDK HID tree) in a linux/amd64 container.
 # Output: fw/out/app.bin (q32s code for 0x1E00120). Packing into jl_isd.bin is not done here (see README).
 # Env: SDK_SRC=<path or URL to a clone of Jieli-Tech/fw-AC63_BT_SDK> to skip the GitHub download.
 # fw/sdk is owned by this script: every run resets it to the pinned commit, wipes all
@@ -24,6 +24,9 @@ git -C sdk cat-file -e "$SDK_REV^{commit}" 2>/dev/null || git -C sdk fetch -q or
 git -C sdk reset -q --hard "$SDK_REV"
 git -C sdk clean -q -fdx
 [ "$(git -C sdk rev-parse HEAD)" = "$SDK_REV" ] || { echo "SDK HEAD is not $SDK_REV" >&2; exit 1; }
+# Our sources go in as an untracked directory; patches/0003 adds them to the board Makefile.
+mkdir sdk/apps/hid/kindle_click
+cp src/*.c src/*.h sdk/apps/hid/kindle_click/
 for p in patches/*.patch; do   # name order
   git -C sdk apply "../$p"
 done

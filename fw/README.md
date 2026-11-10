@@ -1,6 +1,6 @@
 # fw: Jieli SDK build
 
-Builds the unmodified Jieli AC632N SDK HID "keypage" example (`apps/hid/board/bd19`,
+Builds the Kindle Click app (`fw/src` on top of the Jieli AC632N SDK HID tree, `apps/hid/board/bd19`,
 board `CONFIG_BOARD_AC632N_DEMO`) in a `linux/amd64` container. Output: `fw/out/app.bin`,
 raw q32s code linked for entry `0x1E00120` (first bytes `eeff xxxx xxxx edff`).
 
@@ -8,18 +8,84 @@ raw q32s code linked for entry `0x1E00120` (first bytes `eeff xxxx xxxx edff`).
     SDK_SRC=/path/to/clone fw/build.sh   # same, cloning from a local copy instead of GitHub
 
 - SDK: `https://github.com/Jieli-Tech/fw-AC63_BT_SDK` at commit `fdc018de81629e21e594d677cf05f87d288be0f0` (HEAD is verified after checkout).
-- `fw/sdk` is owned by the script: each run does `git reset --hard` to that commit, `git clean -fdx`, then applies every
-  `patches/*.patch` in name order. Do not keep work in it. Every build is therefore a full rebuild (about 20 s).
+- `fw/sdk` is owned by the script: each run does `git reset --hard` to that commit, `git clean -fdx`, copies
+  `src/*.c src/*.h` to `sdk/apps/hid/kindle_click/`, then applies every `patches/*.patch` in name order. Do not keep work in it. Every build is therefore a full rebuild (about 20 s).
 - After the container step the script fails unless `app.bin` is 100-240 KB, starts `ee ff .. .. .. .. ed ff`, and the `.text`
   section of `sdk.elf` starts at `0x1e00120`.
 - `patches/0001-select-keypage.patch` is applied to the clone: `CONFIG_APP_KEYBOARD 0`, `CONFIG_APP_KEYPAGE 1`.
-- Reference result (unmodified SDK + that patch): `app.bin` = 228176 bytes, starts `ee ff d0 19 00 00 ed ff`.
+- `patches/0003-kindle-click-app.patch` switches to the Kindle Click app (next section). `0002` is reserved for the E2 board.
+- Reference result of the stock example (unmodified SDK + 0001 only, before 0003 existed): `app.bin` = 228176 bytes, starts `ee ff d0 19 00 00 ed ff`.
   Builds differ in the embedded build-time bytes: the SDK logs `__DATE__`/`__TIME__` (`apps/hid/app_main.c:184`) and
   each `app.bin` contains `Nov 10 2026` plus the `HH:MM:SS` of its build. Three fresh builds (12:45:46, 12:46:00, 12:46:15)
   were compared pairwise with `cmp -l`: 3, 3 and 2 differing bytes, all within offsets 109030-109033 (the time string).
   So the SHA-256 changes on every build and the build is not bit-for-bit reproducible.
 - `build.sh` refuses to reset/clean unless `git -C fw/sdk rev-parse --show-toplevel` equals the physical path of `fw/sdk`,
   so a missing or broken `fw/sdk/.git` cannot make it clean the parent project.
+
+## Kindle Click app
+
+`src/app_kindle_click.c` is the app (started from `apps/hid/examples/keypage/app_keypage.c`); `src/kc_*.c` are the
+SDK-free protocol, key and link units that `make fw-test` tests on the host. `0003` changes, all on top of 0001:
+
+| Where (SDK path) | Change |
+|---|---|
+| `apps/hid/include/app_config.h` | `CONFIG_APP_KEYPAGE 0`, `CONFIG_APP_KINDLE_CLICK 1`; for this app `TCFG_USER_EDR_ENABLE 0` and the EDR profile switches `USER_SUPPORT_PROFILE_HID/PNP 0` (BLE only; the SDK `#error`s if EDR is off with EDR profiles on) |
+| `apps/hid/include/app_action.h`, `apps/hid/app_main.c` | `ACTION_KINDLE_CLICK` and the `start_app` branch for it |
+| `apps/hid/board/bd19/Makefile` | the four `kindle_click/*.c` files and `-I apps/hid/kindle_click` |
+| `apps/hid/config/lib_btstack_config.c` | `config_le_sm_sub_sc_enable = CONFIG_BT_SM_SUPPORT_ENABLE` (no effect on BD19, see below) |
+| `apps/common/include/bt_common.h` | new `COMMON_EVENT_BLE_CCCD_WRITE`, posted to the app on every CCCD write |
+| `apps/hid/modules/bt/ble_hogp.c` | ADV_IND data = `kc_adv_data` exactly, name only in the scan response; interval 32 x 0.625 ms = 20 ms; `PAIR_RECONNECT_ADV_EN 0` (always undirected ADV_IND; stock sent 2 x 1.28 s of high-duty `ADV_DIRECT_IND` to the stored peer address after boot and after a supervision timeout); Firmware Revision `e2kc-0.1`; SM auth `SM_AUTHREQ_BONDING` only (stock also asked for MITM); a Battery Level notification right after the peer enables its CCCD; the CCCD-write event |
+| `apps/hid/modules/bt/ble_hogp_profile.h` | PnP ID value `READ | DYNAMIC` instead of `READ | AUTHENTICATION_REQUIRED | DYNAMIC` (BD19 `att_db.c` answers Insufficient Authentication (0x05) for that flag unless the link has a MITM key, which Just Works never gives) |
+
+Unchanged stock settings that the Kindle needs: `slave_security_auto_req = 0`, `slave_set_wait_security = 0`,
+`IO_CAPABILITY_NO_INPUT_NO_OUTPUT` (`hogp_sm_init_config`), `CONFIG_BT_SM_SUPPORT_ENABLE 1`, fixed public address derived from
+the BT MAC (`btstack_ble_start_before_init`, `same_address = 0`), Battery Level notify on change (60 s poll, `TCFG_SYS_LVD_EN`).
+PnP ID and report map are handed in from the app (`le_hogp_set_PNP_info`, `ble_init_cfg_t.report_map`). The stock GATT table
+is kept: besides report ID 1 it still lists input reports 2-6, an output report, a boot mouse report and Jieli's `ae40`/`ae30` services.
+
+Board-dependent values come from the SDK board config (now `board_ac632n_demo_cfg.h`; the E2 board patch replaces it): key numbers
+(AD key values), wakeup pin (`port0` = the AD key pin), low-power mode, LED, battery measurement, `TCFG_HID_AUTO_SHUTDOWN_TIME`.
+
+## BD19 library capabilities
+
+What the prebuilt BD19 Bluetooth libraries can do for the Kindle. The `.a` members are LLVM bitcode; symbols were listed with
+`nm --plugin LLVMgold.so` and the code read as IR with `llvm-link -S` (both in the toolchain image:
+`/opt/jieli/q32s/bin/nm`, `/opt/jieli/common/bin/llvm-link`). "Observed" = seen in that code; "inferred" = not tested on a device.
+
+**LE Secure Connections: not available.**
+- Observed: `sm_set_authentication_requirements` in `btstack.a(sm.c.o)` tests bit `0x08` (`SM_AUTHREQ_SECURE_CONNECTION`); if set it prints
+  `<ble-error> :fail select SC,err= %d!!!` and stores `auth_req & ~0x08`. `le_gatt_common.c` ORs that bit in when
+  `config_le_sm_sub_sc_enable` is 1, and it is removed again here.
+- Observed: `sm.c.o` references no P-256/ECDH code (no `uECC_*`, no `ll_hci_*p256*`/`*dhkey*`); its only crypto calls are
+  `ll_hci_encryption` (AES) and `ll_hci_get_le_rand`. P-256 code exists only for BLE mesh (`btstack.a(mesh_hci.c.o)`) and BR/EDR
+  (`btctrler.a(lmp.c.o)`, `authentication.c.o`).
+- Observed: `sm.c` reads `config_le_sm_sub_sc_enable` in one place only, together with `config_le_sm_sub_sc_bridge_edr_enable`, to call
+  `spp_set_miss_connect_en(0)` on disconnect.
+- Inferred: pairing with the Kindle will be LE legacy Just Works (STK from TK = 0), bonded. Whether the Kindle accepts legacy pairing is
+  the open question from the design ("If Secure Connections is missing, test whether the Kindle accepts legacy Just Works pairing").
+
+**Resolving the Kindle's resolvable private address with its IRK: built in, no switch.**
+- Observed: there is no privacy/IRK switch in `lib_btstack_config.c` or `lib_btctrler_config.c`.
+- Observed: when bonding, the responder asks for and offers `ENC | ID | SIGN` key distribution (`(auth_req & 1) | 6` in `sm.c`), so
+  the peer's IRK is received (`SM_CODE_IDENTITY_INFORMATION recieve`). `sm.c` then calls `ble_list_pair_add` (Jieli's bond list,
+  `btstack.a(remote_device_list.c.o)`, kept in VM by `syscfg_write`). Inferred, not traced argument by argument: the IRK is among
+  what `ble_list_pair_add` stores, since `check_random_addr` below reads an IRK from the list entry.
+- Observed: the bond list matches a connecting address with `check_random_addr`: if the top two address bits are `01` (resolvable
+  private address) it computes `ah(IRK, prand)` with `irk_enc` (`btctrler.a(ll_resolve_list.c.o)`) and compares the 3-byte hash; otherwise
+  it compares the address. `sm.c` uses this list on reconnect (`ble_list_reconnect_device_is_exist` when the LTK is requested,
+  `ble_list_get_conn_addr_item`).
+- Observed: BTstack's own resolver in `sm.c` (`sm_address_resolution_*`) iterates `le_device_db`, but `le_device_db_memory.c` on BD19 is a stub
+  (`le_device_db_count` returns 0, `le_device_db_add` returns -1), so that path never matches.
+- Observed: the controller has an LL privacy resolving list (`ll_resolving_list_add`, `le_privacy`, ...), gated by `LL_PRIVACY` in
+  `config_btctler_le_features`, which the SDK leaves off. It is not enabled here: an undirected ADV_IND with no filter policy does not need it.
+- Inferred: a bonded Kindle reconnecting from a new resolvable private address is recognised and its LTK found. Not tested.
+
+**Other facts used here**
+- `sys_timer_get_ms()` (`system.a(timer.c.o)`) is `jiffies * jiffies_unit` (`jiffies_unit = 10`), so it counts in 10 ms steps and wraps
+  modulo 2^32 consistently; `jiffies_msec()` masks `jiffies` to 27 bits and would break the `kc_link` subtraction at the wrap.
+- ATT permission `AUTHENTICATION_REQUIRED` (`0x0400`) needs `att_connection.authenticated` (`att_db.c`, `att_validate_security`); see the PnP ID change above.
+- Clearing the bond uses the SDK's own sequence from `app_mouse.c`: `ble_module_enable(0)`, `le_hogp_set_pair_allow()` (hogp pair info and
+  `ble_list_clear_all()`, both in VM), `ble_module_enable(1)`.
 
 ## Toolchain
 

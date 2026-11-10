@@ -1,0 +1,236 @@
+diff --git a/apps/common/include/bt_common.h b/apps/common/include/bt_common.h
+index dc07571..e995b64 100644
+--- a/apps/common/include/bt_common.h
++++ b/apps/common/include/bt_common.h
+@@ -47,6 +47,7 @@ enum {
+     COMMON_EVENT_SHUTDOWN_ENABLE,
+     COMMON_EVENT_SHUTDOWN_DISABLE,
+     COMMON_EVENT_MODE_DETECT,
++    COMMON_EVENT_BLE_CCCD_WRITE, //value = CCCD handle the peer wrote
+ };
+ 
+ // LE Controller Commands
+diff --git a/apps/hid/app_main.c b/apps/hid/app_main.c
+index 96e411d..91a51ff 100644
+--- a/apps/hid/app_main.c
++++ b/apps/hid/app_main.c
+@@ -170,6 +170,9 @@ void app_main()
+ #elif(CONFIG_APP_REMOTE_CONTROL)
+     it.name = "hid_vrc";
+     it.action = ACTION_REMOTE_CONTROL;
++#elif(CONFIG_APP_KINDLE_CLICK)
++    it.name = "kindle_click";
++    it.action = ACTION_KINDLE_CLICK;
+ #elif(CONFIG_APP_IDLE)
+     it.name = "idle";
+     it.action = ACTION_IDLE_MAIN;
+diff --git a/apps/hid/board/bd19/Makefile b/apps/hid/board/bd19/Makefile
+index ebd4e04..6855f1f 100644
+--- a/apps/hid/board/bd19/Makefile
++++ b/apps/hid/board/bd19/Makefile
+@@ -169,6 +169,7 @@ INCLUDES := \
+ 	-I../../../../include_lib/media/media_new/media/cpu/bd19 \
+ 	-I../../../../include_lib/media/media_new/media/cpu/bd19/asm \
+ 	-I../../../../apps/hid/include \
++	-I../../../../apps/hid/kindle_click \
+ 	-I../../../../apps/hid/board/bd19 \
+ 	-I../../../../apps/common \
+ 	-I../../../../apps/common/include \
+@@ -280,6 +281,10 @@ c_SRC_FILES := \
+ 	../../../../apps/hid/examples/keyboard/app_keyboard.c \
+ 	../../../../apps/hid/examples/keyfob/app_keyfob.c \
+ 	../../../../apps/hid/examples/keypage/app_keypage.c \
++	../../../../apps/hid/kindle_click/app_kindle_click.c \
++	../../../../apps/hid/kindle_click/kc_keys.c \
++	../../../../apps/hid/kindle_click/kc_link.c \
++	../../../../apps/hid/kindle_click/kc_proto.c \
+ 	../../../../apps/hid/examples/mouse_dual/app_mouse_dual.c \
+ 	../../../../apps/hid/examples/mouse_single/app_mouse.c \
+ 	../../../../apps/hid/examples/standard_keyboard/app_standard_keyboard.c \
+diff --git a/apps/hid/config/lib_btstack_config.c b/apps/hid/config/lib_btstack_config.c
+index 72fbd6e..4542008 100644
+--- a/apps/hid/config/lib_btstack_config.c
++++ b/apps/hid/config/lib_btstack_config.c
+@@ -62,7 +62,9 @@ const int config_le_gatt_client_num = 0;   //支持client角色个数
+ 
+ 
+ /*config_le_sm_sub_sc_enable: SC加密模式使能,need config_le_sm_support_enable = 1*/
+-const int config_le_sm_sub_sc_enable = CONFIG_BT_SM_SUPPORT_ENABLE & 0;//
++//Kindle Click: on BD19 btstack.a strips the SC bit again in sm_set_authentication_requirements
++//("fail select SC"), so pairing stays LE legacy; see fw/README.md "BD19 library capabilities"
++const int config_le_sm_sub_sc_enable = CONFIG_BT_SM_SUPPORT_ENABLE;
+ 
+ const int config_le_sm_sub_sc_bridge_edr_enable = 0; /*default 0*/
+ 
+diff --git a/apps/hid/include/app_action.h b/apps/hid/include/app_action.h
+index 359943e..609c0a1 100644
+--- a/apps/hid/include/app_action.h
++++ b/apps/hid/include/app_action.h
+@@ -15,6 +15,7 @@
+ #define ACTION_MOUSE_DUAL_MAIN      0x0008
+ #define ACTION_REMOTE_CONTROL       0x0009
+ #define ACTION_ELECTROCAR           0x000a
++#define ACTION_KINDLE_CLICK         0x000b
+ 
+ #endif
+ 
+diff --git a/apps/hid/include/app_config.h b/apps/hid/include/app_config.h
+index d6c817b..44d27d6 100644
+--- a/apps/hid/include/app_config.h
++++ b/apps/hid/include/app_config.h
+@@ -21,7 +21,8 @@
+ #define CONFIG_APP_MOUSE_SINGLE             0//单模切换
+ #define CONFIG_APP_MOUSE_DUAL               0//同时开双模
+ #define CONFIG_APP_STANDARD_KEYBOARD        0//标准HID键盘,board_ac6351d
+-#define CONFIG_APP_KEYPAGE                  1//翻页器
++#define CONFIG_APP_KEYPAGE                  0//翻页器
++#define CONFIG_APP_KINDLE_CLICK             1//Kindle Click compatible page turner (apps/hid/kindle_click)
+ #define CONFIG_APP_GAMEBOX                  0//吃鸡王座
+ #define CONFIG_APP_REMOTE_CONTROL           0//语音遥控
+ #define CONFIG_APP_IDLE                     0//IDLE
+@@ -60,6 +61,16 @@
+ 
+ #include "board_config.h"
+ 
++#if CONFIG_APP_KINDLE_CLICK
++//BLE only: classic Bluetooth (EDR) off whatever the board config says
++#undef  TCFG_USER_EDR_ENABLE
++#define TCFG_USER_EDR_ENABLE                0
++#undef  USER_SUPPORT_PROFILE_HID
++#define USER_SUPPORT_PROFILE_HID            0
++#undef  USER_SUPPORT_PROFILE_PNP
++#define USER_SUPPORT_PROFILE_PNP            0
++#endif
++
+ #include "usb_common_def.h"
+ 
+ #include "btcontroller_mode.h"
+diff --git a/apps/hid/modules/bt/ble_hogp.c b/apps/hid/modules/bt/ble_hogp.c
+index cc3e83e..b840853 100644
+--- a/apps/hid/modules/bt/ble_hogp.c
++++ b/apps/hid/modules/bt/ble_hogp.c
+@@ -44,6 +44,7 @@
+ #include "ble_hogp_profile.h"
+ #include "gatt_common/le_gatt_common.h"
+ #include "app_comm_bt.h"
++#include "kc_proto.h"
+ 
+ #if (TCFG_USER_BLE_ENABLE && CONFIG_HOGP_COMMON_ENABLE)
+ /* #if RCSP_BTMATE_EN */
+@@ -110,13 +111,14 @@ static adv_cfg_t hogp_server_adv_config;
+ 
+ /*--------------------------------------------*/
+ //普通未连接广播周期 (unit:0.625ms)
+-#define ADV_INTERVAL_MIN                (160 * 5)
++#define ADV_INTERVAL_MIN                (32) /*Kindle Click: 20 ms, fastest reconnect*/
+ 
+ /*------------------------------
+ 配置有配对绑定时,先回连广播快连,再普通广播;否则只作普通广播
+ 定向广播只带对方的地址,不带adv和rsp包
+ */
+-#define PAIR_RECONNECT_ADV_EN               1 /*是否上电使用定向广播，优先绑定回连*/
++/*Kindle Click: 0. The Kindle reconnects from a resolvable private address and must see undirected ADV_IND*/
++#define PAIR_RECONNECT_ADV_EN               0 /*是否上电使用定向广播，优先绑定回连*/
+ 
+ //可选两种定向广播类型,
+ //ADV_DIRECT_IND       (1.28s超时,interval 固定2ms)
+@@ -161,7 +163,7 @@ static const char Manufacturer_Name_String[] = "zhuhai_jieli";
+ static const char Model_Number_String[] = "hid_mouse";
+ static const char Serial_Number_String[] = "000000";
+ static const char Hardware_Revision_String[] = "0.0.1";
+-static const char Firmware_Revision_String[] = "0.0.1";
++static const char Firmware_Revision_String[] = "e2kc-0.1";
+ static const char Software_Revision_String[] = "0.0.1";
+ static const u8 System_ID[] = {0, 0, 0, 0, 0, 0, 0, 0};
+ 
+@@ -228,7 +230,7 @@ static const sm_cfg_t hogp_sm_init_config = {
+     .io_capabilities = IO_CAPABILITY_NO_INPUT_NO_OUTPUT,
+ #endif
+ 
+-    .authentication_req_flags = SM_AUTHREQ_BONDING | SM_AUTHREQ_MITM_PROTECTION,
++    .authentication_req_flags = SM_AUTHREQ_BONDING, /*Kindle Click: Just Works, no MITM*/
+     .min_key_size = 7,
+     .max_key_size = 16,
+     .sm_cb_packet_handler = NULL,
+@@ -875,6 +877,7 @@ static int hogp_att_write_callback(hci_con_handle_t connection_handle, uint16_t
+         if (buffer[0]) {
+             __check_report_map_change();
+         }
++        __ble_bt_evnet_post(SYS_BT_EVENT_FORM_COMMON, COMMON_EVENT_BLE_CCCD_WRITE, NULL, handle);
+         break;
+ 
+ #if RCSP_BTMATE_EN
+@@ -910,6 +913,14 @@ static int hogp_att_write_callback(hci_con_handle_t connection_handle, uint16_t
+         }
+ #endif
+         ble_gatt_server_characteristic_ccc_set(hogp_con_handle, handle, buffer[0]);
++        //Kindle Click: the Kindle takes the level from notifications only, so send one as soon as it subscribes
++        if (handle == ATT_CHARACTERISTIC_2a19_01_CLIENT_CONFIGURATION_HANDLE && buffer[0]) {
++            if (get_vbat_percent_call) {
++                hid_battery_level = hid_get_vbat_handle();
++            }
++            ble_comm_att_send_data(hogp_con_handle, ATT_CHARACTERISTIC_2a19_01_VALUE_HANDLE, &hid_battery_level, 1, ATT_OP_NOTIFY);
++        }
++        __ble_bt_evnet_post(SYS_BT_EVENT_FORM_COMMON, COMMON_EVENT_BLE_CCCD_WRITE, NULL, handle);
+         break;
+ 
+ #if RCSP_BTMATE_EN
+@@ -961,32 +972,12 @@ static int hogp_att_write_callback(hci_con_handle_t connection_handle, uint16_t
+ static u8  adv_name_ok;   //name 优先存放在ADV包
+ static int hogp_make_set_adv_data(u8 adv_reconnect)
+ {
+-    u8 offset = 0;
+-    u8 *buf = hogp_adv_data;
+-
+-    offset += make_eir_packet_val(&buf[offset], offset, HCI_EIR_DATATYPE_FLAGS, FLAGS_GENERAL_DISCOVERABLE_MODE | FLAGS_EDR_NOT_SUPPORTED, 1);
+-    offset += make_eir_packet_val(&buf[offset], offset, HCI_EIR_DATATYPE_COMPLETE_16BIT_SERVICE_UUIDS, HID_UUID_16, 2);
+-    offset += make_eir_packet_data(&buf[offset], offset, HCI_EIR_DATATYPE_APPEARANCE_DATA, Appearance, 2);
+-
+-    if (!adv_reconnect) {/*回连广播默认不填入名字*/
+-        char *gap_name = ble_comm_get_gap_name();
+-        u8 name_len = strlen(gap_name);
+-        u8 vaild_len = ADV_RSP_PACKET_MAX - (offset + 2);
+-        if (name_len < vaild_len) {
+-            offset += make_eir_packet_data(&buf[offset], offset, HCI_EIR_DATATYPE_COMPLETE_LOCAL_NAME, (void *)gap_name, name_len);
+-            adv_name_ok = 1;
+-        } else {
+-            adv_name_ok = 0;
+-        }
+-    }
+-
+-    if (offset > ADV_RSP_PACKET_MAX) {
+-        puts("***hogp_adv_data overflow!!!!!!\n");
+-        return -1;
+-    }
+-    log_info("hogp_adv_data(%d):", offset);
+-    log_info_hexdump(buf, offset);
+-    hogp_server_adv_config.adv_data_len = offset;
++    //Kindle Click: the ADV_IND carries exactly kc_adv_data (flags, manufacturer data, 0x1812); the name goes in the scan response
++    memcpy(hogp_adv_data, kc_adv_data, kc_adv_data_len);
++    adv_name_ok = 0;
++    log_info("hogp_adv_data(%d):", kc_adv_data_len);
++    log_info_hexdump(hogp_adv_data, kc_adv_data_len);
++    hogp_server_adv_config.adv_data_len = kc_adv_data_len;
+     hogp_server_adv_config.adv_data = hogp_adv_data;
+     return 0;
+ }
+diff --git a/apps/hid/modules/bt/ble_hogp_profile.h b/apps/hid/modules/bt/ble_hogp_profile.h
+index 49d9deb..1b2af96 100644
+--- a/apps/hid/modules/bt/ble_hogp_profile.h
++++ b/apps/hid/modules/bt/ble_hogp_profile.h
+@@ -112,11 +112,11 @@ static const uint8_t hogp_profile_data[] = {
+     // 0x001c VALUE 2a2a READ | DYNAMIC
+     0x08, 0x00, 0x02, 0x01, 0x1c, 0x00, 0x2a, 0x2a,
+ 
+-    /* CHARACTERISTIC,  2a50, READ | AUTHENTICATION_REQUIRED | DYNAMIC, */
+-    // 0x001d CHARACTERISTIC 2a50 READ | AUTHENTICATION_REQUIRED | DYNAMIC
++    /* CHARACTERISTIC,  2a50, READ | DYNAMIC, */
++    // 0x001d CHARACTERISTIC 2a50 READ | DYNAMIC
+     0x0d, 0x00, 0x02, 0x00, 0x1d, 0x00, 0x03, 0x28, 0x02, 0x1e, 0x00, 0x50, 0x2a,
+-    // 0x001e VALUE 2a50 READ | AUTHENTICATION_REQUIRED | DYNAMIC
+-    0x08, 0x00, 0x02, 0x05, 0x1e, 0x00, 0x50, 0x2a,
++    // 0x001e VALUE 2a50 READ | DYNAMIC (Kindle Click: was AUTHENTICATION_REQUIRED, which needs a MITM key; Just Works has none)
++    0x08, 0x00, 0x02, 0x01, 0x1e, 0x00, 0x50, 0x2a,
+ 
+     //////////////////////////////////////////////////////
+     //
