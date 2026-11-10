@@ -3,3 +3,7 @@ ghidra/project/
 *.sla
 firmware/*.bin
 __pycache__/
+.superpowers/
+backup/
+fw/sdk/
+fw/out/
