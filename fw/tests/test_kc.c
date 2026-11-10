@@ -1,3 +1,4 @@
+#undef NDEBUG   /* the asserts below have side effects (pops, feeds) and must always run */
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -33,6 +34,28 @@ static void test_report_map(void) {   /* one application collection, report ID 1
         if (kc_report_map[i] == 0xA1 && kc_report_map[i + 1] == 0x01) collections++;
     assert(collections == 1);
     assert(kc_report_map[0] == 0x05 && kc_report_map[1] == 0x01 && kc_report_map[2] == 0x09 && kc_report_map[3] == 0x06);
+    /* walk the short items: Report ID 1 present, and the Input items add up to 80 bits
+     * (8 modifier + 8 reserved + 6 x 8 keys + one 16-bit consumer usage = the 10 report bytes) */
+    int id_items = 0, id_value = -1;
+    unsigned size = 0, count = 0, input_bits = 0;
+    for (int i = 0; i < kc_report_map_len; ) {
+        uint8_t b = kc_report_map[i];
+        int len = (b & 3) == 3 ? 4 : (b & 3);
+        unsigned val = 0;
+        assert(i + 1 + len <= kc_report_map_len);
+        for (int k = 0; k < len; k++) val |= (unsigned)kc_report_map[i + 1 + k] << (8 * k);
+        switch (b & 0xFC) {
+        case 0x84: id_items++; id_value = (int)val; break;    /* Report ID */
+        case 0x74: size = val; break;                         /* Report Size */
+        case 0x94: count = val; break;                        /* Report Count */
+        case 0x80: input_bits += size * count; break;        /* Input */
+        default: break;
+        }
+        i += 1 + len;
+    }
+    assert(id_items == 1 && id_value == 1);
+    assert(!memcmp(kc_report_map + 6, "\x85\x01", 2));          /* right after the collection start */
+    assert(input_bits == 80 && input_bits == 8u * KC_REPORT_LEN);
 }
 static void test_keys(void) {
     assert(kc_key_action(1, 0, 0) == KC_PREV_PAGE);
@@ -70,6 +93,53 @@ static void test_link(void) {
     kc_link_on_cccd_write(&l, 0xFFFFFF00u);
     assert(kc_link_ready(&l, 0xFFFFFF00u + 800u));
     assert(kc_link_pop(&l, 0xFFFFFF00u + 800u) == KC_PREV_PAGE);  /* kept across the disconnect */
+    /* accessors: three presses left, encryption up */
+    assert(kc_link_count(&l) == KC_QUEUE_LEN - 1 && kc_link_is_encrypted(&l));
+    kc_link_on_disconnect(&l);
+    assert(kc_link_count(&l) == KC_QUEUE_LEN - 1 && !kc_link_is_encrypted(&l));   /* queue kept, link gone */
+    kc_link_reset(&l);
+    assert(kc_link_count(&l) == 0 && !kc_link_is_encrypted(&l));
+}
+static void test_link_fifo_reset_stale_cccd(void) {
+    kc_link_t l; kc_link_reset(&l);
+    /* FIFO order with distinct actions */
+    assert(kc_link_push(&l, KC_PREV_PAGE) && kc_link_push(&l, KC_NEXT_PAGE) && kc_link_push(&l, KC_SLEEP));
+    assert(kc_link_count(&l) == 3);
+    kc_link_on_encrypted(&l, 0);
+    assert(kc_link_pop(&l, 4999) == KC_NONE && kc_link_count(&l) == 3);   /* not ready: nothing taken */
+    assert(kc_link_pop(&l, 5000) == KC_PREV_PAGE);
+    assert(kc_link_pop(&l, 5000) == KC_NEXT_PAGE);
+    assert(kc_link_pop(&l, 5000) == KC_SLEEP);
+    assert(kc_link_pop(&l, 5000) == KC_NONE && kc_link_count(&l) == 0);
+    /* FIFO order survives the ring wrapping around */
+    assert(kc_link_push(&l, KC_NEXT_PAGE) && kc_link_push(&l, KC_PREV_PAGE) && kc_link_push(&l, KC_SLEEP));
+    assert(kc_link_pop(&l, 5000) == KC_NEXT_PAGE);
+    assert(kc_link_push(&l, KC_NEXT_PAGE) && kc_link_push(&l, KC_PREV_PAGE));
+    assert(kc_link_pop(&l, 5000) == KC_PREV_PAGE && kc_link_pop(&l, 5000) == KC_SLEEP);
+    assert(kc_link_pop(&l, 5000) == KC_NEXT_PAGE && kc_link_pop(&l, 5000) == KC_PREV_PAGE);
+    assert(kc_link_pop(&l, 5000) == KC_NONE);
+
+    /* kc_link_reset empties the queue (and the link state) */
+    assert(kc_link_push(&l, KC_PREV_PAGE) && kc_link_push(&l, KC_NEXT_PAGE));
+    kc_link_reset(&l);
+    assert(kc_link_count(&l) == 0);
+    kc_link_on_encrypted(&l, 10000);
+    assert(kc_link_pop(&l, 99999) == KC_NONE);                    /* nothing left, even when ready */
+    assert(kc_link_push(&l, KC_SLEEP) && kc_link_pop(&l, 99999) == KC_SLEEP);   /* and the queue works again */
+
+    /* a CCCD write from before a disconnect does not make the next connection ready */
+    kc_link_reset(&l);
+    kc_link_on_encrypted(&l, 0);
+    kc_link_on_cccd_write(&l, 100);
+    assert(kc_link_ready(&l, 900));
+    kc_link_on_disconnect(&l);
+    kc_link_on_encrypted(&l, 1000);                               /* next connection, no CCCD write yet */
+    assert(!kc_link_ready(&l, 1000) && !kc_link_ready(&l, 1800) && !kc_link_ready(&l, 5999));
+    assert(kc_link_ready(&l, 6000));                              /* 5 s fallback */
+    kc_link_on_disconnect(&l);
+    kc_link_on_encrypted(&l, 1000);
+    kc_link_on_cccd_write(&l, 2000);                              /* a new CCCD write counts */
+    assert(!kc_link_ready(&l, 2799) && kc_link_ready(&l, 2800));
 }
 
 /* Feeds s; returns how many bytes completed a command, and the index of the last one in *at. */
@@ -145,6 +215,7 @@ int main(void) {
     test_report_map(); puts("ok test_report_map");
     test_keys();       puts("ok test_keys");
     test_link();       puts("ok test_link");
+    test_link_fifo_reset_stale_cccd(); puts("ok test_link_fifo_reset_stale_cccd");
     test_update_cmd(); puts("ok test_update_cmd");
     test_power();      puts("ok test_power");
     return 0;

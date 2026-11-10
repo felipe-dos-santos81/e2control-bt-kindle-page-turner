@@ -15,7 +15,7 @@ variant ?= zoom-phone-tablet
         ghidra-install \
         ghidra-score \
         ghidra-import ghidra-import-all \
-        fw-build fw-test fw-image
+        fw-build fw-test fw-image tools-test
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -74,6 +74,9 @@ fw-test: ## [STEP  5] Run the host tests for the Kindle Click logic
 	mkdir -p fw/out
 	$(CC) -std=c99 -Wall -Wextra -Werror -Ifw/src fw/src/kc_*.c fw/tests/test_kc.c -o fw/out/test_kc
 	fw/out/test_kc
+
+tools-test: ## [STEP  5] Run the image-packer tests (needs firmware/*.bin)
+	$(PYTHON) tools/test_jlimg.py
 
 # fw/out/app.bin → flashable image built on a stock one
 

@@ -42,11 +42,11 @@ def entry(flags, handle, uuid, value=b''):
 def build():
     """Return (table bytes, [(define name, handle)])."""
     out, names, h = b'', [], 1
-    count = {}
+    seen = {}
     for svc, chars in SERVICES:
         out += entry(READ, h, 0x2800, svc.to_bytes(2, 'little')); h += 1
         for uuid, props, extra, init, ref in chars:
-            n = count[uuid] = count.get(uuid, 0) + 1
+            n = seen[uuid] = seen.get(uuid, 0) + 1
             stem = 'ATT_CHARACTERISTIC_%04x_%02d' % (uuid, n)
             out += entry(READ, h, 0x2803, bytes([props]) + (h + 1).to_bytes(2, 'little') + uuid.to_bytes(2, 'little')); h += 1
             vflags = props | extra | (DYNAMIC if init is None else 0)

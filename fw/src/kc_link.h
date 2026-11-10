@@ -1,5 +1,7 @@
 /* Link-ready gate and press queue. Pure C, no SDK includes.
- * Time is a wrapping uint32_t millisecond counter, compared by subtraction. */
+ * Time is a wrapping uint32_t millisecond counter, compared by subtraction. Callers pass a freshly
+ * sampled, monotonic millisecond clock on every call that takes now_ms. A CCCD write is only
+ * meaningful after encryption on the same connection (kc_link_on_disconnect forgets it). */
 #ifndef KC_LINK_H
 #define KC_LINK_H
 
@@ -33,5 +35,9 @@ bool        kc_link_ready(const kc_link_t *l, uint32_t now_ms);
 bool        kc_link_push(kc_link_t *l, kc_action_t a);
 /* KC_NONE unless ready and non-empty. */
 kc_action_t kc_link_pop(kc_link_t *l, uint32_t now_ms);
+/* Queued presses. */
+uint8_t     kc_link_count(const kc_link_t *l);
+/* Encryption is up on the current connection. */
+bool        kc_link_is_encrypted(const kc_link_t *l);
 
 #endif

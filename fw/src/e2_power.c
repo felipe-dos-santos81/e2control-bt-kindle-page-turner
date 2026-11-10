@@ -13,7 +13,7 @@
 static void (*power_off_cb)(void);
 static u16  poll_timer;
 static u8   connected;
-static u32  adv_start_ms;       /* sys_timer_get_ms() at advertising start (or at connect/disconnect) */
+static u32  unconnected_since_ms;   /* sys_timer_get_ms() at advertising start or at disconnect */
 static u32  last_key_ms;        /* ... at the last key event (or at connect) */
 
 static u8 usb_power_present(void)
@@ -25,16 +25,16 @@ static u8 usb_power_present(void)
 #endif
 }
 
-static void poll(void *priv)
+static void power_poll(void *priv)
 {
     u32 now = sys_timer_get_ms();
     u8 usb = usb_power_present();   /* read right before the decision, every time */
 
     if (usb) {                      /* a timer that would expire re-arms: counting restarts at unplug */
-        adv_start_ms = now;
+        unconnected_since_ms = now;
         last_key_ms  = now;
     }
-    if (kc_power_should_off(usb, connected, now - adv_start_ms, now - last_key_ms)) {
+    if (kc_power_should_off(usb, connected, now - unconnected_since_ms, now - last_key_ms)) {
         sys_timer_del(poll_timer);
         poll_timer = 0;
         power_off_cb();
@@ -45,19 +45,19 @@ void e2_power_init(void (*power_off)(void))
 {
     power_off_cb = power_off;
     connected    = 0;
-    adv_start_ms = last_key_ms = sys_timer_get_ms();
+    unconnected_since_ms = last_key_ms = sys_timer_get_ms();
 #if E2_USB_SENSE_ENABLE
     gpio_set_direction(TCFG_E2_USB_SENSE_PORT, 1);
     gpio_set_pull_up(TCFG_E2_USB_SENSE_PORT, 0);
     gpio_set_pull_down(TCFG_E2_USB_SENSE_PORT, 1);      /* low when nothing drives it */
     gpio_set_die(TCFG_E2_USB_SENSE_PORT, 1);
 #endif
-    poll_timer = sys_timer_add(NULL, poll, E2_POWER_POLL_MS);
+    poll_timer = sys_timer_add(NULL, power_poll, E2_POWER_POLL_MS);
 }
 
 void e2_power_on_adv_start(void)
 {
-    adv_start_ms = sys_timer_get_ms();
+    unconnected_since_ms = sys_timer_get_ms();
 }
 
 void e2_power_on_connected(void)
@@ -69,7 +69,7 @@ void e2_power_on_connected(void)
 void e2_power_on_disconnected(void)
 {
     connected    = 0;
-    adv_start_ms = sys_timer_get_ms();      /* advertising restarts: its own event follows */
+    unconnected_since_ms = sys_timer_get_ms();      /* advertising restarts: its own event follows */
 }
 
 void e2_power_on_key(void)

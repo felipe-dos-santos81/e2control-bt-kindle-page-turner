@@ -6,7 +6,7 @@
 #include "typedef.h"
 #include "kc_proto.h"
 
-void kc_send_reset(void);                       /* boot, clear-bond, advertising gave up: queue emptied */
+void kc_send_reset(void);                       /* boot (app_start) and clear-bond: queue emptied, link state forgotten */
 void kc_send_press(kc_action_t a, u8 times);    /* queue a page/sleep press (full queue: dropped) */
 void kc_send_link_down(void);                   /* connect or disconnect: not ready, queue kept */
 void kc_send_encrypted(void);

@@ -47,3 +47,13 @@ kc_action_t kc_link_pop(kc_link_t *l, uint32_t now_ms)
     l->count--;
     return a;
 }
+
+uint8_t kc_link_count(const kc_link_t *l)
+{
+    return l->count;
+}
+
+bool kc_link_is_encrypted(const kc_link_t *l)
+{
+    return l->encrypted;
+}

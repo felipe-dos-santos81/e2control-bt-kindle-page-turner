@@ -32,6 +32,16 @@
 #define LOG_INFO_ENABLE
 #include "debug.h"
 
+/* kc_keys.h repeats the SDK key event values (it has no SDK includes): keep them equal. */
+_Static_assert(KC_EV_CLICK == KEY_EVENT_CLICK, "KC_EV_CLICK");
+_Static_assert(KC_EV_LONG == KEY_EVENT_LONG, "KC_EV_LONG");
+_Static_assert(KC_EV_HOLD == KEY_EVENT_HOLD, "KC_EV_HOLD");
+_Static_assert(KC_EV_UP == KEY_EVENT_UP, "KC_EV_UP");
+_Static_assert(KC_EV_DOUBLE_CLICK == KEY_EVENT_DOUBLE_CLICK, "KC_EV_DOUBLE_CLICK");
+_Static_assert(KC_EV_TRIPLE_CLICK == KEY_EVENT_TRIPLE_CLICK, "KC_EV_TRIPLE_CLICK");
+_Static_assert(KC_EV_FOURTH_CLICK == KEY_EVENT_FOURTH_CLICK, "KC_EV_FOURTH_CLICK");
+_Static_assert(KC_EV_FIFTH_CLICK == KEY_EVENT_FIRTH_CLICK, "KC_EV_FIFTH_CLICK");   /* sic: the SDK spells it FIRTH */
+
 extern void ble_module_enable(u8 en);
 extern void le_hogp_set_PNP_info(const u8 *info);
 extern void le_hogp_set_pair_allow(void);
@@ -64,7 +74,7 @@ static void clear_bond(void)
 static void key_event(u8 key, u8 event)
 {
     u16 hold_count = 0;
-    u8 n = kc_key_repeat(key, event);   /* a multi-click is that many clicks */
+    u8 repeat = kc_key_repeat(key, event);  /* a multi-click is that many clicks */
     kc_action_t a;
 
     if (key < KEY_NUM_MAX) {
@@ -81,11 +91,11 @@ static void key_event(u8 key, u8 event)
     e2_power_on_key();              /* any key event re-arms the 30 min idle power-off */
 
     /* kc_key_action maps a multi-click event to KC_NONE: take the action from the CLICK event. */
-    a = n ? kc_key_action(key, KEY_EVENT_CLICK, 0) : kc_key_action(key, event, hold_count);
+    a = repeat ? kc_key_action(key, KEY_EVENT_CLICK, 0) : kc_key_action(key, event, hold_count);
     if (a == KC_CLEAR_BOND) {
         clear_bond();
     } else if (a != KC_NONE) {
-        kc_send_press(a, n ? n : 1);
+        kc_send_press(a, repeat ? repeat : 1);
     }
 }
 

@@ -16,6 +16,7 @@ import json, struct, sys
 from pathlib import Path
 
 CODE_BASE = 0x1E00000  # app area address in the CPU map
+BOOT_SCAN = 4096 + 32  # boot area bytes scanned for the boot file table: 32 B header + 4096 B of records
 
 
 def crc16(data, crc=0):
@@ -83,13 +84,18 @@ def boot_table(image):
     hdr = enc(image[:32], 0xFFFF)
     if crc16(hdr[2:]) != int.from_bytes(hdr[:2], "little"):
         raise ValueError("bad header CRC (not a jl_isd.bin?)")
-    return table(bytes(enc(image[:4096 + 32], 0xFFFF)[:32]) + b"".join(enc(image[a:a + 32], 0xFFFF) for a in range(32, 4096 + 32, 32)), 32)
+    return table(bytes(enc(image[:BOOT_SCAN], 0xFFFF)[:32]) + b"".join(enc(image[a:a + 32], 0xFFFF) for a in range(32, BOOT_SCAN, 32)), 32)
+
+
+def app_base(image):
+    """Flash offset of the app area (the app_dir_head entry of the boot table)."""
+    return next(r["offset"] for r in boot_table(image) if r["name"] == "app_dir_head")
 
 
 def unpack(image, outdir, key=None):
     out = Path(outdir); out.mkdir(parents=True, exist_ok=True)
     boot = boot_table(image)
-    base = next(r["offset"] for r in boot if r["name"] == "app_dir_head")
+    base = app_base(image)
     for r in boot:
         if r["name"] in ("uboot.boot", "isd_config.ini"):
             data = image[r["offset"]:r["offset"] + r["size"]]
@@ -120,7 +126,7 @@ def unpack(image, outdir, key=None):
 
 def pack(base_image, app_bin, cfg_tool, key):
     """Return base_image with app.bin (and cfg_tool.bin unless None) replaced. Everything else is kept byte for byte."""
-    base = next(r["offset"] for r in boot_table(base_image) if r["name"] == "app_dir_head")
+    base = app_base(base_image)
     plain = scramble(base_image[base:], key)
     recs = {r["name"]: (i, r) for i, r in enumerate(table(plain, 0, skip_first_last=True))}  # raises on a wrong key
     head, app, cfg, vm = (recs[n][1] for n in ("app_area_head", "app.bin", "cfg_tool.bin", "VM"))
@@ -132,7 +138,7 @@ def pack(base_image, app_bin, cfg_tool, key):
     if base + end > min(vm["offset"], len(base_image)):
         raise ValueError(f"app + cfg_tool end at flash {base + end:#x}, past the VM partition at {vm['offset']:#x}")
     out = bytearray(plain)
-    out[end:head["size"]] = b"\xff" * max(0, head["size"] - end)  # space freed by a smaller app
+    out[end:head["size"]] = b"\xff" * (head["size"] - end)  # space freed by a smaller app
     out[app["offset"]:cfg_off] = app_bin
     out[cfg_off:end] = cfg_tool
     for name, off, data in (("app.bin", app["offset"], app_bin), ("cfg_tool.bin", cfg_off, cfg_tool)):
@@ -172,7 +178,7 @@ def main_pack(argv):
     if len(pos) != 3:
         sys.exit(__doc__)
     base = Path(pos[0]).read_bytes()
-    base_off = next(r["offset"] for r in boot_table(base) if r["name"] == "app_dir_head")
+    base_off = app_base(base)
     key = int(opt("--key"), 16) if opt("--key") else find_key(base[base_off:base_off + 32])
     cfg = Path(opt("--cfg")).read_bytes() if opt("--cfg") else None
     try:

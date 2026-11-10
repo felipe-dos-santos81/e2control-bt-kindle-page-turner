@@ -6,6 +6,8 @@ raw q32s code linked for entry `0x1E00120` (first bytes `eeff xxxx xxxx edff`).
 
     fw/build.sh                       # (or `make fw-build`) clones the SDK into fw/sdk/ (gitignored), builds, writes fw/out/app.bin
     SDK_SRC=/path/to/clone fw/build.sh   # same, cloning from a local copy instead of GitHub
+    make fw-test                      # host tests of the kc_*.c units (seconds)
+    make tools-test                   # tests of the image packer tools/jlimg.py (needs firmware/*.bin)
 
 - SDK: `https://github.com/Jieli-Tech/fw-AC63_BT_SDK` at commit `fdc018de81629e21e594d677cf05f87d288be0f0` (HEAD is verified after checkout).
 - `fw/sdk` is owned by the script: each run does `git reset --hard` to that commit, `git clean -fdx`, copies
@@ -176,9 +178,15 @@ decision is the pure `kc_power_should_off` in `src/kc_power.c`, host-tested by `
 - **Powers off:** 180 s after advertising starts with no connection; 30 min after the last key event while connected (every
   key event re-arms it; it is dropped on disconnect and the 180 s rule takes over when advertising restarts). The SDK's
   low-battery event (`POWER_EVENT_POWER_LOW`) also powers off, with or without USB power.
+- **Power-off paths that do not consult the USB-power pin** (neither is ours to change, both are SDK/library code): the
+  boot-time low-battery check `check_power_on_voltage` (`apps/hid/modules/power/app_power_manage.c`, called from `app_main`
+  before the app and its USB start-up run, only when no charger is online): after 10 low readings it calls
+  `power_set_soft_poweroff`; and a library-internal one: `cpu.a` (`rtc.c.o`, `p2m_rtc_cmd_trim`, a P11 message handler)
+  calls `power_set_soft_poweroff` (seen in the IR; its trigger is not traced).
 - **Keeps it on:** USB power present, i.e. the sense pin `TCFG_E2_USB_SENSE_PORT` reads high (active high, plain GPIO input with
-  internal pull-down), at boot and at any time after. A power-off that would be due re-arms instead: the 180 s / 30 min counts
-  restart when the cable is unplugged. BLE keeps running regardless of the pin.
+  internal pull-down), at boot and at any time after. While it is high, both time references (the 180 s unconnected-since
+  time and the 30 min last-key time) restart on every 1 s poll, so the counts begin when the cable is unplugged. BLE keeps
+  running regardless of the pin.
 - **Wakes it (from soft power-off):** a press of either page key (`TCFG_E2_WAKE_KEY1_PORT`, `TCFG_E2_WAKE_KEY2_PORT`, falling
   edge, pull-up) and plugging in USB power (rising edge on the sense pin). Wake-up table: `board_ac632n_demo.c` `wk_param`,
   patched by `0004`. A key whose pin is the debug UART TX (`TCFG_UART0_TX_PORT`; PA0 in the demo config) is left out, as in
@@ -189,9 +197,10 @@ decision is the pure `kc_power_should_off` in `src/kc_power.c`, host-tested by `
 Pin assignments (`board_ac632n_demo_cfg.h`, all **assumed, to be verified on the board**, see "Before flashing" 4 and 5):
 sense `IO_PORTA_07` (stock reads PA7 at start, see Observed), keys `IO_PORTB_07` and `IO_PORTA_00` (stock keys 1 and 2).
 
-Not verified: which pull the prebuilt power library applies to a wake-up pin with `pullup_down_enable` (expected: pull-up for
-the falling-edge keys, pull-down for the rising-edge sense pin; `close_gpio` leaves the three pins alone at soft power-off).
-Check that the unit stays off with no key pressed and no cable, and wakes on each of the three.
+Wake-up pull (observed in the linked power library): a wake-up pin with `pullup_down_enable` gets a pull-up when its edge is
+falling (the two keys) and a pull-down when it is rising (the sense pin), applied at start-up. To be verified on the board: that
+the pull is still in place in the powered-off state (`close_gpio` leaves the three pins alone at soft power-off), that the unit
+stays off with no key pressed and no cable, and that it wakes on each of the three.
 
 Not covered: a USB cable plugged in during the 300 ms between the decision to power off and the power-off itself gives no
 rising edge, so the unit stays off until the next key press or replug.
