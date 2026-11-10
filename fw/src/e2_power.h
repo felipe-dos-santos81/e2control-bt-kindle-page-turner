@@ -4,9 +4,16 @@
 #ifndef E2_POWER_H
 #define E2_POWER_H
 
+#include "typedef.h"
+
 /* App start: set up the USB-power sense pin and start the 1 s power poll. power_off is called once, in the
  * app task, when the unit must soft-power-off (the app's own set_soft_poweroff). */
 void e2_power_init(void (*power_off)(void));
+
+/* Stops the 1 s poll; the app's power-off routine calls it, so whichever path requests the power-off ends it. */
+void e2_power_stop(void);
+/* 1 when the USB-power sense pin reads high (always 0 without a sense pin). Reads the pin on every call. */
+u8   e2_power_usb_present(void);
 
 void e2_power_on_adv_start(void);       /* BLE_ST_ADV: the 180 s count starts */
 void e2_power_on_connected(void);       /* BLE_ST_CONNECT: the 30 min count starts */

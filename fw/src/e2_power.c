@@ -16,7 +16,7 @@ static u8   connected;
 static u32  unconnected_since_ms;   /* sys_timer_get_ms() at advertising start or at disconnect */
 static u32  last_key_ms;        /* ... at the last key event (or at connect) */
 
-static u8 usb_power_present(void)
+u8 e2_power_usb_present(void)
 {
 #if E2_USB_SENSE_ENABLE
     return gpio_read(TCFG_E2_USB_SENSE_PORT) != 0;
@@ -28,16 +28,22 @@ static u8 usb_power_present(void)
 static void power_poll(void *priv)
 {
     u32 now = sys_timer_get_ms();
-    u8 usb = usb_power_present();   /* read right before the decision, every time */
+    u8 usb = e2_power_usb_present();   /* read right before the decision, every time */
 
     if (usb) {                      /* a timer that would expire re-arms: counting restarts at unplug */
         unconnected_since_ms = now;
         last_key_ms  = now;
     }
     if (kc_power_should_off(usb, connected, now - unconnected_since_ms, now - last_key_ms)) {
+        power_off_cb();             /* stops this poll through e2_power_stop */
+    }
+}
+
+void e2_power_stop(void)
+{
+    if (poll_timer) {
         sys_timer_del(poll_timer);
         poll_timer = 0;
-        power_off_cb();
     }
 }
 

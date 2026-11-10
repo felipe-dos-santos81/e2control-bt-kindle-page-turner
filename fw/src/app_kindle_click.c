@@ -49,9 +49,6 @@ extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 
 static u16         holds[KEY_NUM_MAX];  /* consecutive HOLD events per SDK key number */
 static volatile u8 is_active;       /* 1: keep the system out of low power (soft power-off running) */
-#if TCFG_HID_AUTO_SHUTDOWN_TIME
-static u16         auto_shutdown_timer;
-#endif
 
 /* report_map_size is filled in at start: kc_report_map_len is not a constant expression. */
 static ble_init_cfg_t kc_ble_config = {
@@ -128,36 +125,50 @@ static void common_event(struct bt_event *bt)
     case COMMON_EVENT_BLE_CCCD_WRITE:
         kc_send_cccd_written();
         break;
-#if TCFG_HID_AUTO_SHUTDOWN_TIME
-    case COMMON_EVENT_SHUTDOWN_DISABLE:
-        if (auto_shutdown_timer) {
-            sys_timeout_del(auto_shutdown_timer);
-        }
-        break;
-#endif
     default:                        /* COMMON_EVENT_BLE_REMOTE_TYPE: one report map for every host */
         break;
     }
 }
 
-/*------------------------------------------------------------------ power, as app_keypage.c */
-static void power_event_to_user(void *priv)
+/*------------------------------------------------------------------ power */
+/* The delayed half of the power-off, WAIT_DISCONN_TIME_MS after the request. USB power may have been plugged in since
+ * the decision; that gives no wake-up edge once the unit is off, so it would stay off with the cable in. Restart
+ * instead, so it boots with USB and BLE running again. */
+static void power_off_or_restart(void *priv)
 {
-    struct sys_event e;
-    e.type = SYS_DEVICE_EVENT;
-    e.arg  = (void *)DEVICE_EVENT_FROM_POWER;
-    e.u.dev.event = (u32)priv;
-    e.u.dev.value = 0;
-    sys_event_notify(&e);
+    if (e2_power_usb_present()) {
+        log_info("USB power appeared, restart instead of power off");
+        cpu_reset();                /* the SDK's system reset: p33_soft_reset, as app_comm_ble.c, uart_update.c, ... */
+        return;
+    }
+    power_set_soft_poweroff();
 }
 
-/* Only e2_power.c's poll (which reads the USB sense pin first) and the SDK's low-battery event call this. */
+/* The only way into a power-off, idempotent: the first request wins, the 1 s power poll is stopped whichever
+ * path asked. Callers: e2_power.c's poll (reads the USB sense pin first) and low_battery_poweroff below. */
 static void set_soft_poweroff(void)
 {
+    if (is_active) {
+        return;
+    }
     log_info("soft poweroff");
     is_active = 1;
+    e2_power_stop();
     btstack_ble_exit(0);
-    sys_timeout_add(NULL, power_set_soft_poweroff, WAIT_DISCONN_TIME_MS);   /* let the link close first */
+    sys_timeout_add(NULL, power_off_or_restart, WAIT_DISCONN_TIME_MS);   /* let the link close first */
+}
+
+/* The SDK's low-battery event (app_power_event_handler, POWER_EVENT_POWER_LOW) ends here. With USB power present the
+ * unit stays on. The SDK stopped its battery monitor before calling us: start it again, so a later low reading
+ * (after unplugging) powers off. */
+static void low_battery_poweroff(void)
+{
+    if (e2_power_usb_present()) {
+        log_info("low battery, USB power present: staying on");
+        vbat_check_init();
+        return;
+    }
+    set_soft_poweroff();
 }
 
 static void app_start(void)
@@ -176,9 +187,6 @@ static void app_start(void)
     sys_key_event_enable();
     e2_update_usb_start();          /* USB CDC for the update command, at the same point as stock */
     e2_power_init(set_soft_poweroff);
-#if TCFG_HID_AUTO_SHUTDOWN_TIME
-    auto_shutdown_timer = sys_timeout_add((void *)POWER_EVENT_POWER_SOFTOFF, power_event_to_user, TCFG_HID_AUTO_SHUTDOWN_TIME * 1000);
-#endif
 }
 
 static int state_machine(struct application *app, enum app_state state, struct intent *it)
@@ -191,12 +199,6 @@ static int state_machine(struct application *app, enum app_state state, struct i
 
 static int event_handler(struct application *app, struct sys_event *event)
 {
-#if TCFG_HID_AUTO_SHUTDOWN_TIME
-    if (event->type != SYS_DEVICE_EVENT || DEVICE_EVENT_FROM_POWER != event->arg) {
-        sys_timer_modify(auto_shutdown_timer, TCFG_HID_AUTO_SHUTDOWN_TIME * 1000);
-    }
-#endif
-
     switch (event->type) {
     case SYS_KEY_EVENT:
         if (event->arg == (void *)DEVICE_EVENT_FROM_KEY) {
@@ -220,7 +222,7 @@ static int event_handler(struct application *app, struct sys_event *event)
 
     case SYS_DEVICE_EVENT:
         if ((u32)event->arg == DEVICE_EVENT_FROM_POWER) {
-            return app_power_event_handler(&event->u.dev, set_soft_poweroff);
+            return app_power_event_handler(&event->u.dev, low_battery_poweroff);
         }
 #if TCFG_CHARGE_ENABLE
         if ((u32)event->arg == DEVICE_EVENT_FROM_CHARGE) {

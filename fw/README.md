@@ -35,7 +35,6 @@ units that `make fw-test` tests on the host. (The SDK-bound files must not be na
 | `apps/hid/include/app_config.h` | `CONFIG_APP_KEYPAGE 0`, `CONFIG_APP_KINDLE_CLICK 1`; for this app `TCFG_USER_EDR_ENABLE 0` and the EDR profile switches `USER_SUPPORT_PROFILE_HID/PNP 0` (BLE only; the SDK `#error`s if EDR is off with EDR profiles on) |
 | `apps/hid/include/app_action.h`, `apps/hid/app_main.c` | `ACTION_KINDLE_CLICK` and the `start_app` branch for it |
 | `apps/hid/board/bd19/Makefile` | the four `kindle_click/*.c` files and `-I apps/hid/kindle_click` |
-| `apps/hid/config/lib_btstack_config.c` | `config_le_sm_sub_sc_enable = CONFIG_BT_SM_SUPPORT_ENABLE` (no effect on BD19, see below) |
 | `apps/common/include/bt_common.h` | new `COMMON_EVENT_BLE_CCCD_WRITE`, posted to the app on every CCCD write |
 | `apps/hid/modules/bt/ble_hogp.c` | ADV_IND data = `kc_adv_data` exactly, name only in the scan response; interval 32 x 0.625 ms = 20 ms; `PAIR_RECONNECT_ADV_EN 0` (always undirected ADV_IND; stock sent 2 x 1.28 s of high-duty `ADV_DIRECT_IND` to the stored peer address after boot and after a supervision timeout); Firmware Revision `e2kc-0.1`; SM auth `SM_AUTHREQ_BONDING` only (stock also asked for MITM); Battery Level notifications only on an encrypted link (`sm_encryption_key_size`): right after the peer enables the CCCD, after encryption on a reconnect, and on change; the CCCD-write event; handle references cut down to the new table (one input report, no output report, no `ae40`/`ae30` transfer channels) |
 | `apps/hid/modules/bt/ble_hogp_profile.h` | Replaced by the output of `fw/att_table.py gen` (see "ATT table" below) |
@@ -73,7 +72,8 @@ flags here follow the design ("encryption required, MITM not") and standard HOGP
 
 Board-dependent values come from the SDK board config (now `board_ac632n_demo_cfg.h`; the E2 board patch replaces it): key numbers
 (AD key values), soft-off wake-up pins (`TCFG_E2_WAKE_KEY1/2_PORT`, `TCFG_E2_USB_SENSE_PORT`, see "Power"), low-power mode, LED,
-battery measurement, `TCFG_HID_AUTO_SHUTDOWN_TIME` (0, unused).
+battery measurement. The SDK's `TCFG_HID_AUTO_SHUTDOWN_TIME` idle power-off is not used (no code for it in the app, so a board config cannot
+switch on a second, unguarded power-off).
 
 ## USB update entry
 
@@ -177,7 +177,8 @@ decision is the pure `kc_power_should_off` in `src/kc_power.c`, host-tested by `
 
 - **Powers off:** 180 s after advertising starts with no connection; 30 min after the last key event while connected (every
   key event re-arms it; it is dropped on disconnect and the 180 s rule takes over when advertising restarts). The SDK's
-  low-battery event (`POWER_EVENT_POWER_LOW`) also powers off, with or without USB power.
+  low-battery event (`POWER_EVENT_POWER_LOW`) also powers off, but not while USB power is present (it reads the sense pin first; it
+  then restarts the SDK's battery monitor, which the event had stopped).
 - **Power-off paths that do not consult the USB-power pin** (neither is ours to change, both are SDK/library code): the
   boot-time low-battery check `check_power_on_voltage` (`apps/hid/modules/power/app_power_manage.c`, called from `app_main`
   before the app and its USB start-up run, only when no charger is online): after 10 low readings it calls
@@ -202,8 +203,11 @@ falling (the two keys) and a pull-down when it is rising (the sense pin), applie
 the pull is still in place in the powered-off state (`close_gpio` leaves the three pins alone at soft power-off), that the unit
 stays off with no key pressed and no cable, and that it wakes on each of the three.
 
-Not covered: a USB cable plugged in during the 300 ms between the decision to power off and the power-off itself gives no
-rising edge, so the unit stays off until the next key press or replug.
+Power-off request (`set_soft_poweroff` in `app_kindle_click.c`): the first request wins (later ones, from the poll or the
+low-battery event, do nothing) and it stops the 1 s poll. The power-off itself runs 300 ms later (`WAIT_DISCONN_TIME_MS`, to let
+the link close). A USB cable plugged in during those 300 ms gives no rising edge once the unit is off, so that callback reads the
+sense pin again and, if it is high, restarts the unit with `cpu_reset()` (`p33_soft_reset`) instead, so it boots with USB and BLE
+running. Not tested on a device.
 
 ## BD19 library capabilities
 
@@ -214,7 +218,8 @@ What the prebuilt BD19 Bluetooth libraries can do for the Kindle. The `.a` membe
 **LE Secure Connections: not available.**
 - Observed: `sm_set_authentication_requirements` in `btstack.a(sm.c.o)` tests bit `0x08` (`SM_AUTHREQ_SECURE_CONNECTION`); if set it prints
   `<ble-error> :fail select SC,err= %d!!!` and stores `auth_req & ~0x08`. `le_gatt_common.c` ORs that bit in when
-  `config_le_sm_sub_sc_enable` is 1, and it is removed again here.
+  `config_le_sm_sub_sc_enable` is 1. The SDK's value (`CONFIG_BT_SM_SUPPORT_ENABLE & 0`, i.e. 0) is left as it is: switching the flag on
+  would not give Secure Connections, since the library strips the bit again.
 - Observed: `sm.c.o` references no P-256/ECDH code (no `uECC_*`, no `ll_hci_*p256*`/`*dhkey*`); its only crypto calls are
   `ll_hci_encryption` (AES) and `ll_hci_get_le_rand`. P-256 code exists only for BLE mesh (`btstack.a(mesh_hci.c.o)`) and BR/EDR
   (`btctrler.a(lmp.c.o)`, `authentication.c.o`).

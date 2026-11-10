@@ -48,21 +48,6 @@ index ebd4e04..d82e1ea 100644
  	../../../../apps/hid/examples/mouse_dual/app_mouse_dual.c \
  	../../../../apps/hid/examples/mouse_single/app_mouse.c \
  	../../../../apps/hid/examples/standard_keyboard/app_standard_keyboard.c \
-diff --git a/apps/hid/config/lib_btstack_config.c b/apps/hid/config/lib_btstack_config.c
-index 72fbd6e..4542008 100644
---- a/apps/hid/config/lib_btstack_config.c
-+++ b/apps/hid/config/lib_btstack_config.c
-@@ -62,7 +62,9 @@ const int config_le_gatt_client_num = 0;   //支持client角色个数
- 
- 
- /*config_le_sm_sub_sc_enable: SC加密模式使能,need config_le_sm_support_enable = 1*/
--const int config_le_sm_sub_sc_enable = CONFIG_BT_SM_SUPPORT_ENABLE & 0;//
-+//Kindle Click: on BD19 btstack.a strips the SC bit again in sm_set_authentication_requirements
-+//("fail select SC"), so pairing stays LE legacy; see fw/README.md "BD19 library capabilities"
-+const int config_le_sm_sub_sc_enable = CONFIG_BT_SM_SUPPORT_ENABLE;
- 
- const int config_le_sm_sub_sc_bridge_edr_enable = 0; /*default 0*/
- 
 diff --git a/apps/hid/include/app_action.h b/apps/hid/include/app_action.h
 index 359943e..609c0a1 100644
 --- a/apps/hid/include/app_action.h
