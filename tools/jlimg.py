@@ -139,7 +139,21 @@ def pack(base_image, app_bin, cfg_tool, key):
         patch(out, recs[name][0], off, len(data), crc16(data))
     # the head's data CRC covers everything after its own record; its offset field stays as in the base
     patch(out, 0, head["offset"], end, crc16(out[32:end]))
-    return base_image[:base] + scramble(bytes(out), key)
+    result = base_image[:base] + scramble(bytes(out), key)
+    check(result, base_image, base, key)  # the output goes onto a real device: never return an image that does not parse
+    return result
+
+
+def check(image, base_image, base, key):
+    if len(image) != len(base_image) or image[:base] != base_image[:base]:
+        raise ValueError("self-check failed: length or boot area changed")
+    plain = scramble(image[base:], key)
+    recs = table(plain, 0, skip_first_last=True)  # raises on a bad record CRC
+    for r in recs:
+        if r["attr"] & 0x1F == 2 and crc16(plain[r["offset"]:r["offset"] + r["size"]]) != r["crc"]:
+            raise ValueError(f"self-check failed: bad data CRC for {r['name']}")
+    if crc16(plain[32:recs[0]["size"]]) != recs[0]["crc"]:
+        raise ValueError("self-check failed: bad data CRC for app_area_head")
 
 
 def patch(buf, idx, offset, size, data_crc):
@@ -157,7 +171,11 @@ def main_pack(argv):
     base_off = next(r["offset"] for r in boot_table(base) if r["name"] == "app_dir_head")
     key = int(opt("--key"), 16) if opt("--key") else find_key(base[base_off:base_off + 32])
     cfg = Path(opt("--cfg")).read_bytes() if opt("--cfg") else None
-    Path(pos[2]).write_bytes(pack(base, Path(pos[1]).read_bytes(), cfg, key))
+    try:
+        out = pack(base, Path(pos[1]).read_bytes(), cfg, key)
+    except ValueError as e:
+        sys.exit(f"jlimg pack: {e}")
+    Path(pos[2]).write_bytes(out)  # only reached when pack succeeded
 
 
 if __name__ == "__main__":
