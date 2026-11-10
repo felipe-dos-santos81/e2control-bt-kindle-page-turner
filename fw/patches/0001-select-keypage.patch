@@ -1,0 +1,19 @@
+diff --git a/apps/hid/include/app_config.h b/apps/hid/include/app_config.h
+index 3ec537c..d6c817b 100644
+--- a/apps/hid/include/app_config.h
++++ b/apps/hid/include/app_config.h
+@@ -16,12 +16,12 @@
+ #define CONFIG_DEBUG_ENABLE
+ 
+ //app case 选择,只选1,要配置对应的board_config.h
+-#define CONFIG_APP_KEYBOARD                 1//hid按键 ,default case
++#define CONFIG_APP_KEYBOARD                 0//hid按键 ,default case
+ #define CONFIG_APP_KEYFOB                   0//自拍器,  board_ac6368a,board_6318,board_6379b
+ #define CONFIG_APP_MOUSE_SINGLE             0//单模切换
+ #define CONFIG_APP_MOUSE_DUAL               0//同时开双模
+ #define CONFIG_APP_STANDARD_KEYBOARD        0//标准HID键盘,board_ac6351d
+-#define CONFIG_APP_KEYPAGE                  0//翻页器
++#define CONFIG_APP_KEYPAGE                  1//翻页器
+ #define CONFIG_APP_GAMEBOX                  0//吃鸡王座
+ #define CONFIG_APP_REMOTE_CONTROL           0//语音遥控
+ #define CONFIG_APP_IDLE                     0//IDLE
