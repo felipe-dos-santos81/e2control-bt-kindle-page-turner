@@ -78,21 +78,36 @@ The vendor updater can only reflash the E2 if the running app takes it into the 
 (`uboot.boot`, kept unchanged by `jlimg.py pack`). This firmware keeps that entry. Nothing below has run on a device.
 Addresses are in the zoom-phone-tablet `app.bin` (load `0x1E00120`), Ghidra project `ghidra/project/E2`.
 
+**In this build (demo board config) the key entry is NOT compiled in: the USB command is the only way into update mode.**
+`fw/build.sh` prints which on its last line ("E2 update: key entry compiled in" / "NOT compiled in").
+
+Before flashing the custom firmware onto the E2:
+
+1. The build log says "key entry compiled in" for the real board config, and PA0 is not the debug UART TX
+   (`TCFG_UART0_TX_PORT`; on the demo config it is, which is why the key entry is off).
+2. On the device, still running the STOCK firmware, send `JUMPBOOT` (the vendor updater) and confirm the unit enters its
+   USB HID updater. This proves that the boot code acts on the tag written at `0x800`, which is inferred, not read.
+3. After the first flash, check first that the custom firmware enumerates as `4c4a:4155` CDC.
+
 What is built (`patches/0004-usb-update-entry.patch`, `src/e2_update.c`, `src/kc_update_cmd.c`):
 
 - `board_ac632n_demo_cfg.h`: `TCFG_PC_ENABLE 1`, `USB_DEVICE_CLASS_CONFIG (CDC_CLASS)` (CDC-ACM only), `usb_std_class_def.h`
-  defaults (CDC endpoints 0x83 interrupt / 0x04 out / 0x84 in). `TCFG_PC_ENABLE` also makes `TCFG_OTG_MODE` = slave, which
-  registers the SDK's `"otg"` detector already present in `board_ac632n_demo.c`. The board Makefile gets the two new sources.
-- `e2_update_device_event()` (called for every `SYS_DEVICE_EVENT`): passes the event to the SDK's `pc_device_event_handler`
-  (`usb_start()` on the detector's "host in", `usb_stop()` on "out"), then replaces the SDK's echo demo receive callback with
-  `cdc_rx`. `cdc_rx` (USB interrupt) feeds each byte to `kc_update_cmd_feed` and calls `e2_update_enter()` on a match.
-- `kc_update_cmd_feed`: true exactly when `{"o":"JUMPBOOT"}` is complete; JSON whitespace between tokens, any packet split,
-  any bytes before it. One byte of state. Host-tested (`test_update_cmd`).
+  defaults (CDC endpoints 0x83 interrupt / 0x04 out / 0x84 in), `TCFG_OTG_USB_DEV_EN 0` as stock, and the key pins
+  `TCFG_E2_UPDATE_KEY1_PORT IO_PORTB_07`, `TCFG_E2_UPDATE_KEY2_PORT IO_PORTA_00` (stock keys 1 and 2). The board Makefile
+  gets the two new sources.
+- `e2_update_usb_start()`, called in `app_start` right after `btstack_init()` and `sys_key_event_enable()`, the same place as
+  stock: SDK `usb_start()` (CDC device on USB0), then `cdc_set_wakeup_handler(cdc_rx)` in place of the SDK's echo demo.
+  `cdc_rx` (USB interrupt) feeds each byte to `kc_update_cmd_feed` and calls `e2_update_enter()` on a match.
+- `kc_update_cmd_feed`: true when the 8 bytes `JUMPBOOT` have arrived contiguously anywhere in the stream, also across
+  packets (stock: `strstr(packet, "JUMPBOOT")` per packet). One byte of state. Host-tested (`test_update_cmd`).
 - `e2_update_enter()`: `memcpy(0x800, "ubootZst", 8)`, `hw_mmu_disable()`, `cpu_reset()` (= `p33_soft_reset`).
-- `e2_update_boot_keys()` (first call in `app_start`, before BLE): if SDK keys 1 and 2 are both pressed and stay pressed for
-  3000 ms, `e2_update_enter()`. Reads the two pins from the board's `iokey_list` with `gpio_read`, as `io_get_key_value` does.
-  On the demo config keys 1 and 2 are AD keys, so this is compiled out (an AD ladder gives one value for two keys). A
-  throw-away build with `TCFG_IOKEY_ENABLE 1` compiled it as intended.
+- `e2_update_boot_keys()` (first call in `app_start`, before BLE): sets both key pins to pull-up input, and if both read low
+  for 3000 ms without a break, `e2_update_enter()`. Compiled in only when both pins are set and neither is the UART0 TX pin.
+- Advertising timeout (180 s without a connection): soft power-off, as stock, instead of stopping advertising.
+
+Power: like stock, the chip never enters power-down while it runs, so it draws its full idle current for as long as it is
+on, and it switches itself off 180 s after start or after losing the connection. While connected it stays on; stock also
+switches off after 30 min connected, which is not reproduced (see Unknown).
 
 Observed (static):
 
@@ -116,31 +131,40 @@ Observed (static):
   "Jieli Technology" / "USB Composite Device", config header `09 02 .. 01 00 a0 32`: byte-identical to ours. Stock
   `cdc_desc_config` (`0x1E01696`) patches in EP `0x83`/`0x04`/`0x84` like ours; `cdc_hdl` is 0x74 bytes (no interrupt-EP mutex,
   `CDC_INTR_EP_ENABLE 0`). Serial number: both use the flash UUID (`get_iserialnumber_str`).
-- Stock starts USB with a direct `usb_start` in both app paths (`0x1E0A17A` when `JL_PORTA->IN` bit 7 is set, then an `idle`
-  app; `0x1E05B8E` after BT init otherwise). Its `otg_data` (RAM `0x858`) has `usb_dev_en = 0`. In this SDK's `otg.c`
-  (`cpu.a`, read as IR) a port with its `usb_dev_en` bit clear is set to state 7 and `usb_dev_idle_query` reports state > 2
-  as busy, so that setting never lets the chip power down. Ours enables both ports, so the detector runs and the
-  low-power target is busy only while a host is attached (slave states).
+- Stock start-up (BT app, `0x1E05B72`-`0x1E05B8E`): `btstack_init` (`FUN_01E0DE82`), `sys_timeout_add(FUN_01E060FA, 180000)`,
+  `sys_key_event_enable` (`FUN_01E16002`), `usb_start` (`FUN_01E05964`). A second `usb_start` (`0x1E0A17A`) runs instead of
+  BT when `JL_PORTA->IN` bit 7 (PA7) is high at start, followed by an `idle` app.
+- Stock `otg_data` (RAM `0x858`) = `00 02 02 02 03 02 32` (`usb_dev_en = 0`), ours identical. Stock `usb_otg_init`
+  (`0x1E086F6`) = ours: a port whose `usb_dev_en` bit is clear gets state 7, and the detector timer is only added when
+  `usb_dev_en != 0`. Stock `usb_dev_idle_query` (`0x1E080CC`, in its `.lp_target` list as "otg") = ours (`0x1E0523A` in our
+  build): busy if a port is in a state > 2. The low-power gate (`__power_get_timeout`, port_overwrite.c:451, ours `0x1E10C08`) ANDs all
+  `is_idle` results, so in both firmwares the chip never powers down.
+- Stock power-down hook: `sleep_enter_callback` `0x1E073C2` -> `close_gpio` `0x1E0720A` (clears `0x1E1800` bit 0 = USB0 IO
+  mode, like ours `0x1E02F30`); `board_set_soft_poweroff` `0x1E073EC` -> same `close_gpio`. Registered by `0x1E094B6`, as ours
+  (`power_set_callback`). Since the chip never powers down, `close_gpio` runs only at soft power-off.
+- Stock auto power-off: the 180 s timeout above (`FUN_01E060FA`: BT shut down (inferred), then `sys_timeout_add(FUN_01E05470, 300)`, which writes
+  P11 registers and loops: power-off, inferred) is re-armed by `sys_timer_modify` to 180 s while no link exists and to 30 min
+  (`0x1B7740`) while one does (link = connection handles `0x2E4E`/`0x2E50` non-zero, inferred) (`0x1E063FC`, `0x1E06394`, `0x1E04156`); it is deleted while PA7 is high (`FUN_01E0558C`). A 15 s timer
+  (`0x1E054B6`) also powers off after 12 ticks without a connection.
 - Stock keys: AD key on PA1 (`adkey_data` `0x1E18EF4`, values 0, 4, 5, 6) and IO keys (`iokey_list` `0x1E18E8A`): key 1 = PB7,
   key 2 = PA0, key 3 = PA2, all to GND, with a combination remap BIT(1)|BIT(2) -> key 7 (`MULT_KEY_ENABLE`).
 
 Inferred:
 
 - uboot enters its HID updater when it finds `ubootZst` at `0x800` after the reset, and RAM `0x800` survives the soft reset
-  (the ROM's own tags rely on that). Not read in uboot code.
-- The OTG detector reports a PC host on the E2's USB0 as it does on Jieli boards; then `usb_dev_lp_target` keeps the chip awake
-  and the CDC device stays up while BLE advertises or is connected.
+  (the ROM's own tags rely on that). Not read in uboot code. Checklist item 2 settles it.
+- PA7 high means USB power is present (stock then drops BT and cancels the power-off timer).
 
-Unknown / for the E2 board patch:
+Unknown / not reproduced:
 
-- Whether detection still works after `sleep_enter_callback` -> `close_gpio(0)` puts DP/DM in high impedance while no host is
-  attached (the detector re-drives the pins every 50 ms; not checked).
-- What the E2 has on USB1 (DP1/DM1): the detector polls those pins too. Clearing that bit instead would stop power-down (above).
-- The key entry needs keys 1 and 2 as IO keys in the E2 `iokey_list` (stock: PB7, PA0, to GND). PA0 is the demo board's UART0
-  TX (`CONFIG_DEBUG_ENABLE` is on): the E2 board patch must move or turn off the debug TX before PA0 is a key.
-- Not reproduced from stock, on purpose: the `0xAA`-first-byte trigger, `JUMPBOOT` anywhere in a packet, the `get`/`set`
-  protocol, and stock `setup_arch`'s clearing of a `uboot\xa5ok` tag at `0x800` (`0x1E090D8`; it runs after `boot_info_init`
-  has rewritten byte `0x800`, so it rarely matches; effect unknown).
+- Which events re-arm stock's 30-min connected power-off (key presses or only BT events): not established, so the 30-min
+  limit is not reproduced; ours stays on while connected.
+- The PA7 behaviour (BT off and no power-off on USB power): not reproduced, PA7's meaning is not established. Consequence: the
+  unit may switch itself off while plugged into a PC if it has had no BLE connection for 180 s; a key press starts it again
+  (wake-up pins are the E2 board patch's job).
+- Not reproduced from stock, on purpose: the `0xAA`-first-byte trigger, the `get`/`set` protocol, and stock `setup_arch`'s
+  clearing of a `uboot\xa5ok` tag at `0x800` (`0x1E090D8`; it runs after `boot_info_init` `0x1E17E02` has rewritten byte
+  `0x800`, so it rarely matches; effect unknown).
 
 ## BD19 library capabilities
 

@@ -1,9 +1,8 @@
 /* Recogniser for the update-entry command on the USB serial byte stream. Pure C, no SDK includes.
  *
- * The command is the JSON object {"o":"JUMPBOOT"}: the 16 bytes the vendor updater writes
- * (JSON.stringify of {o: "JUMPBOOT"}). JSON whitespace (space, tab, CR, LF) is accepted between
- * tokens, not inside the strings. The bytes may arrive in any number of packets and may follow any
- * other bytes, including other JSON objects. Other keys or values are not the command. */
+ * The vendor updater writes {"o":"JUMPBOOT"} (JSON.stringify, 16 bytes). As the stock firmware
+ * (strstr(packet, "JUMPBOOT")), only the 8 ASCII bytes JUMPBOOT are looked for, received
+ * contiguously anywhere in the stream; unlike stock, they may also be split across packets. */
 #ifndef KC_UPDATE_CMD_H
 #define KC_UPDATE_CMD_H
 
@@ -11,11 +10,11 @@
 #include <stdbool.h>
 
 typedef struct {
-    uint8_t pos;    /* private: bytes of the command matched so far. Zero-initialise before the first feed. */
+    uint8_t pos;    /* private: bytes of JUMPBOOT matched so far. Zero-initialise before the first feed. */
 } kc_update_cmd_t;
 
-/* Feed one received byte. True exactly when this byte completes the command; the matcher then
- * starts over, so a second command is recognised again. */
+/* Feed one received byte. True exactly when this byte completes JUMPBOOT; the matcher then starts
+ * over, so a second command is recognised again. */
 bool kc_update_cmd_feed(kc_update_cmd_t *st, uint8_t byte);
 
 #endif

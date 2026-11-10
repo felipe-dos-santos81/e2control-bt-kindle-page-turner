@@ -54,13 +54,16 @@ static ble_init_cfg_t kc_ble_config = {
 };
 
 /*------------------------------------------------------------------ advertising, bond */
+static void set_soft_poweroff(void);
+
 static void adv_timeout(void *priv)
 {
     adv_timer = 0;
     if (!ble_hid_is_connected() && ble_gatt_server_get_work_state() == BLE_ST_ADV) {
-        log_info("adv timeout: stop, sleep until a key");
-        ble_gatt_server_adv_enable(0);  /* nothing else keeps the chip awake: it powers down, a key wakes it */
-        kc_send_reset();                /* presses made while the Kindle was away are stale */
+        /* As stock (180 s without a connection -> power off): with the USB device up the chip never
+         * powers down (usb_dev_lp_target, as stock), so stopping advertising would not save power. */
+        log_info("adv timeout: power off");
+        set_soft_poweroff();
     }
 }
 
@@ -187,6 +190,7 @@ static void app_start(void)
     btstack_init();
 
     sys_key_event_enable();
+    e2_update_usb_start();          /* USB CDC for the update command, at the same point as stock */
 #if TCFG_HID_AUTO_SHUTDOWN_TIME
     auto_shutdown_timer = sys_timeout_add((void *)POWER_EVENT_POWER_SOFTOFF, power_event_to_user, TCFG_HID_AUTO_SHUTDOWN_TIME * 1000);
 #endif
@@ -230,7 +234,6 @@ static int event_handler(struct application *app, struct sys_event *event)
         return 0;
 
     case SYS_DEVICE_EVENT:
-        e2_update_device_event(event);  /* USB host in/out: CDC device for the update command */
         if ((u32)event->arg == DEVICE_EVENT_FROM_POWER) {
             return app_power_event_handler(&event->u.dev, set_soft_poweroff);
         }

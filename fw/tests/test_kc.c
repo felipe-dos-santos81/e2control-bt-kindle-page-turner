@@ -82,30 +82,31 @@ static void test_update_cmd(void) {
     static const char cmd[] = "{\"o\":\"JUMPBOOT\"}";     /* what the updater writes: JSON.stringify */
     kc_update_cmd_t st = {0};
     int at = -1;
-    assert(cmd_feed(&st, cmd, &at) == 1 && at == (int)sizeof cmd - 2);  /* true only on the last byte */
+    assert(cmd_feed(&st, cmd, &at) == 1 && at == 13);             /* true on the 'T' of JUMPBOOT, once */
     assert(cmd_feed(&st, cmd, &at) == 1);                         /* starts over: second command too */
-    /* JSON whitespace between tokens */
     st = (kc_update_cmd_t){0};
-    assert(cmd_feed(&st, " {\r\n\t\"o\" :  \"JUMPBOOT\"\n}", NULL) == 1);
+    assert(cmd_feed(&st, "JUMPBOOT", &at) == 1 && at == 7);       /* no JSON framing needed */
+    st = (kc_update_cmd_t){0};
+    assert(cmd_feed(&st, "{ \"o\" : \"JUMPBOOT\" }\r\n", NULL) == 1);
     /* split across packets: state carries over */
     st = (kc_update_cmd_t){0};
     assert(cmd_feed(&st, "{\"o\":\"JUM", NULL) == 0 && cmd_feed(&st, "PBO", NULL) == 0 && cmd_feed(&st, "OT\"}", NULL) == 1);
     st = (kc_update_cmd_t){0};
-    for (int i = 0; cmd[i]; i++) { char one[2] = { cmd[i], 0 }; assert(cmd_feed(&st, one, NULL) == (cmd[i + 1] == 0)); }
+    for (int i = 0; cmd[i]; i++) { char one[2] = { cmd[i], 0 }; assert(cmd_feed(&st, one, NULL) == (i == 13)); }
     /* after other bytes and other JSON objects, including the updater's get queries */
     st = (kc_update_cmd_t){0};
-    assert(cmd_feed(&st, "\x01\xAA garbage }}{{", NULL) == 0);
+    assert(cmd_feed(&st, "\x01\xAA garbage }}{{JJJUMP", NULL) == 0);
     assert(cmd_feed(&st, "{\"o\":\"get\",\"t\":\"battery\"}{\"o\":\"get\",\"t\":\"mac\"}{\"o\":\"JUMPBOOT\"}", NULL) == 1);
     st = (kc_update_cmd_t){0};
-    assert(cmd_feed(&st, "{\"o\":\"JUMP{\"o\":\"JUMPBOOT\"}", NULL) == 1);   /* broken one, then a whole one */
+    assert(cmd_feed(&st, "JUMPJUMPBOOT", NULL) == 1);              /* broken prefix, then a whole one */
     st = (kc_update_cmd_t){0};
-    assert(cmd_feed(&st, "{\"o\":\"JUMPBOOT\"{\"o\":\"JUMPBOOT\"}", NULL) == 1);
-    /* not the command */
+    assert(cmd_feed(&st, "JJUMPBOOT", NULL) == 1);
+    st = (kc_update_cmd_t){0};
+    assert(cmd_feed(&st, "JUMPBOOTJUMPBOOT", NULL) == 2);
+    /* near misses of the 8 bytes */
     const char *no[] = {
-        "JUMPBOOT", "\"JUMPBOOT\"", "{\"o\":\"JUMPBOOTX\"}", "{\"o\":\"jumpboot\"}", "{\"o\":\"JUMP BOOT\"}",
-        "{\"o\":\" JUMPBOOT\"}", "{\" o\":\"JUMPBOOT\"}", "{\"O\":\"JUMPBOOT\"}", "{\"t\":\"JUMPBOOT\"}",
-        "{\"o\":\"get\",\"t\":\"JUMPBOOT\"}", "{\"o\":\"JUMPBOOT\",\"t\":1}", "{\"o\":JUMPBOOT}", "{'o':'JUMPBOOT'}",
-        "{\"o\"\"JUMPBOOT\"}", "{\"o\":\"JUMPBOOT\"]", "{\"o\":\"JUMPBOO\"}", "{\"o\":\"get\",\"t\":\"firmware\"}",
+        "JUMPBOO", "JUMPBOOX", "jumpboot", "JUMP BOOT", "JUMPBOOt", "jUMPBOOT", "JUMPB0OT", "JUMPBO OT",
+        "UMPBOOT", "JUMPBOT", "JUMPBOOO", "JUMPB\x01OOT", "{\"o\":\"get\",\"t\":\"firmware\"}", "\xAA",
     };
     for (unsigned i = 0; i < sizeof no / sizeof no[0]; i++) { st = (kc_update_cmd_t){0}; assert(cmd_feed(&st, no[i], NULL) == 0); }
     /* every byte value, twice over, never matches by itself */

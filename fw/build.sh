@@ -61,3 +61,6 @@ addr=$(tr -d '\r\n' < "$TOOLS/text_addr.txt" | tr 'A-F' 'a-f')
 mkdir -p out
 cp "$TOOLS/app.bin" out/app.bin
 echo "app.bin: $size bytes, starts $head8, code at 0x$addr"
+# The SDK compiles with -w, so e2_update.c cannot report this itself (see fw/README.md "USB update entry").
+grep -q '^e2_key_entry_held:' "$TOOLS/sdk.lst" && echo "E2 update: key entry compiled in (keys held 3 s at power-on)" \
+  || echo "E2 update: key entry NOT compiled in; the USB command JUMPBOOT is the only way into update mode"

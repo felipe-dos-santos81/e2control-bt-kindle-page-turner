@@ -15,38 +15,41 @@ index d82e1ea..df05279 100644
  	../../../../apps/hid/examples/mouse_single/app_mouse.c \
  	../../../../apps/hid/examples/standard_keyboard/app_standard_keyboard.c \
 diff --git a/apps/hid/board/bd19/board_ac632n_demo_cfg.h b/apps/hid/board/bd19/board_ac632n_demo_cfg.h
-index da1b28e..e89a3bc 100644
+index da1b28e..b8209d2 100644
 --- a/apps/hid/board/bd19/board_ac632n_demo_cfg.h
 +++ b/apps/hid/board/bd19/board_ac632n_demo_cfg.h
-@@ -29,13 +29,21 @@
+@@ -29,13 +29,20 @@
  //*********************************************************************************//
  //                                 USB 配置                                        //
  //*********************************************************************************//
 -#define TCFG_PC_ENABLE						DISABLE_THIS_MOUDLE //PC模块使能
-+//E2 update entry (fw/src/e2_update.c): USB device, CDC-ACM only, as the stock E2 firmware
-+//(4c4a:4155, endpoints 0x83 intr / 0x04 out / 0x84 in = the SDK defaults). TCFG_PC_ENABLE also
-+//turns on the OTG slave detector ("otg" device in board_ac632n_demo.c); the app starts and stops
-+//the CDC device on its "s:N" events. Both USB ports stay enabled here: otg.c reports a port whose
-+//TCFG_OTG_USB_DEV_EN bit is clear as busy to the low-power code, so the chip would never sleep.
++//E2 update entry (fw/src/e2_update.c): USB device, CDC-ACM only, started by the app with usb_start()
++//as the stock E2 firmware (4c4a:4155, endpoints 0x83 intr / 0x04 out / 0x84 in = the SDK defaults).
++//TCFG_OTG_USB_DEV_EN 0 as stock (otg_data 00 02 02 02 03 02 32): no OTG detector timer, and otg.c
++//reports both ports busy to the low-power code, so the chip never powers down (stock does the same).
 +#define TCFG_PC_ENABLE						ENABLE_THIS_MOUDLE //PC模块使能
  #define TCFG_UDISK_ENABLE					DISABLE_THIS_MOUDLE //U盘模块使能
  #define TCFG_HID_HOST_ENABLE                DISABLE_THIS_MOUDLE//ENABLE_THIS_MOUDLE  //游戏盒子模式
  #define TCFG_ADB_ENABLE                     DISABLE_THIS_MOUDLE//ENABLE_THIS_MOUDLE
  #define TCFG_AOA_ENABLE                     DISABLE_THIS_MOUDLE//ENABLE_THIS_MOUDLE
  
- #define TCFG_OTG_USB_DEV_EN                 (BIT(0) | BIT(1))//USB0 = BIT(0)  USB1 = BIT(1)
+-#define TCFG_OTG_USB_DEV_EN                 (BIT(0) | BIT(1))//USB0 = BIT(0)  USB1 = BIT(1)
++#define TCFG_OTG_USB_DEV_EN                 0//(BIT(0) | BIT(1))//USB0 = BIT(0)  USB1 = BIT(1)
 +#include "usb_std_class_def.h"
 +#undef  USB_DEVICE_CLASS_CONFIG
 +#define USB_DEVICE_CLASS_CONFIG             (CDC_CLASS)
  //*********************************************************************************//
  //                                 IIC配置                                        //
  //*********************************************************************************//
-@@ -106,6 +114,8 @@
+@@ -106,6 +113,11 @@
  //                                 iokey 配置                                      //
  //*********************************************************************************//
  #define TCFG_IOKEY_ENABLE					DISABLE_THIS_MOUDLE //是否使能IO按键
-+//E2 update entry (keys 1 + 2 held at power-on) reads keys 1 and 2 from iokey_list only. On this
-+//demo config they are AD keys (one ADC value, two keys cannot be told apart): no key entry.
++//E2 update entry: these two pins held low for 3 s at power-on enter update mode (fw/src/e2_update.c).
++//Values = stock E2 keys 1 and 2 (iokey_list 0x1E18E8A: PB7, PA0, to GND). Not compiled in while PA0 is
++//the debug UART0 TX (TCFG_UART0_TX_PORT above): the build log says which.
++#define TCFG_E2_UPDATE_KEY1_PORT            IO_PORTB_07
++#define TCFG_E2_UPDATE_KEY2_PORT            IO_PORTA_00
  
  #define TCFG_IOKEY_POWER_CONNECT_WAY		ONE_PORT_TO_LOW    //按键一端接低电平一端接IO
  

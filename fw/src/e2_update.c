@@ -8,15 +8,22 @@
 #include "usb/device/cdc.h"
 #include "kc_update_cmd.h"
 #include "e2_update.h"
-#if TCFG_IOKEY_ENABLE
-#include "iokey.h"
-#endif
 
 #define E2_UBOOT_TAG_ADDR   ((u8 *)0x800)   /* 8-byte RAM tag slot the mask ROM checks after a reset (uboot: inferred) */
-#define E2_UPDATE_HOLD_MS   3000            /* keys 1 + 2 held this long right at boot */
+#define E2_UPDATE_HOLD_MS   3000            /* keys held this long right at boot */
+
+/* Key entry: built when the board config names both key pins and neither is the debug UART TX pin.
+ * fw/build.sh reports from sdk.lst whether e2_key_entry_held was linked (the SDK compiles with -w, so
+ * a #pragma message would not show). */
+#if defined(TCFG_E2_UPDATE_KEY1_PORT) && defined(TCFG_E2_UPDATE_KEY2_PORT) && \
+    (TCFG_E2_UPDATE_KEY1_PORT != NO_CONFIG_PORT) && (TCFG_E2_UPDATE_KEY2_PORT != NO_CONFIG_PORT) && \
+    !(TCFG_UART0_ENABLE && ((TCFG_UART0_TX_PORT == TCFG_E2_UPDATE_KEY1_PORT) || (TCFG_UART0_TX_PORT == TCFG_E2_UPDATE_KEY2_PORT)))
+#define E2_KEY_ENTRY 1
+#else
+#define E2_KEY_ENTRY 0
+#endif
 
 extern void hw_mmu_disable(void);                           /* system.a(memory.c) */
-extern int  pc_device_event_handler(struct sys_event *e);   /* apps/common/device/usb/device/task_pc.c */
 
 void e2_update_enter(void)
 {
@@ -30,7 +37,7 @@ void e2_update_enter(void)
     while (1);
 }
 
-/*------------------------------------------------------------------ USB: {"o":"JUMPBOOT"} */
+/*------------------------------------------------------------------ USB: JUMPBOOT */
 static kc_update_cmd_t cmd_state;   /* only touched in the USB interrupt */
 
 /* CDC bulk-OUT callback, in the USB interrupt (as the SDK's usb_cdc_wakeup and the stock handler). */
@@ -46,51 +53,43 @@ static void cdc_rx(struct usb_device_t *usb_device)
     }
 }
 
-void e2_update_device_event(struct sys_event *event)
+void e2_update_usb_start(void)
 {
-    /* The SDK handler starts the CDC device when the OTG detector reports a host ("s:N" in) and stops it
-     * on "out" (USB_PC_NO_APP_MODE). It returns 1 after usb_start(), which installed the SDK's echo demo
-     * as the receive callback: replace that with ours. */
-    if (pc_device_event_handler(event) == 1) {
-        cdc_set_wakeup_handler(cdc_rx);
-    }
+    usb_start();                        /* stock 0x1e05b8e; SDK task_pc.c: CDC on USB0, echo demo callback */
+    cdc_set_wakeup_handler(cdc_rx);     /* stock does this inside its usb_start (handler 0x1e02fc2) */
 }
 
-/*------------------------------------------------------------------ keys 1 + 2 at power-on */
-#if TCFG_IOKEY_ENABLE
-extern const struct iokey_platform_data iokey_data;     /* board file */
-
-/* Pressed state of the one-pin IO key with this SDK key number, read as io_get_key_value() does.
- * 0 if no such key is configured. */
-static int iokey_pressed(u8 key_value)
+/*------------------------------------------------------------------ keys at power-on */
+#if E2_KEY_ENTRY
+/* Key to GND, internal pull-up: the stock E2's IO keys (ONE_PORT_TO_LOW). */
+static void key_pin_input(u32 pin)
 {
-    for (int i = 0; iokey_data.enable && i < iokey_data.num; i++) {
-        const struct iokey_port *k = &iokey_data.port[i];
-        if ((k->key_value & ~BIT(7)) != key_value) {
-            continue;
-        }
-        if (k->connect_way == ONE_PORT_TO_LOW) {
-            return gpio_read(k->key_type.one_io.port) == 0;
-        }
-        if (k->connect_way == ONE_PORT_TO_HIGH) {
-            return gpio_read(k->key_type.one_io.port) == 1;
-        }
-    }
-    return 0;
+    gpio_set_direction(pin, 1);
+    gpio_set_pull_down(pin, 0);
+    gpio_set_pull_up(pin, 1);
+    gpio_set_die(pin, 1);
+}
+
+__attribute__((noinline)) static int e2_key_entry_held(void)
+{
+    return gpio_read(TCFG_E2_UPDATE_KEY1_PORT) == 0 && gpio_read(TCFG_E2_UPDATE_KEY2_PORT) == 0;
 }
 #endif
 
 void e2_update_boot_keys(void)
 {
-#if TCFG_IOKEY_ENABLE
-    /* ponytail: polls the two pins directly (as app_mouse_dual.c does for its two-key gesture), because
-     * the key driver reports one key at a time. AD-ladder keys cannot be read separately: no entry then. */
-    for (u32 ms = 0; iokey_pressed(1) && iokey_pressed(2); ms += 10) {
+#if E2_KEY_ENTRY
+    /* ponytail: polls the two pins directly (as app_mouse_dual.c does for its two-key gesture): the key
+     * driver reports one key at a time. */
+    key_pin_input(TCFG_E2_UPDATE_KEY1_PORT);
+    key_pin_input(TCFG_E2_UPDATE_KEY2_PORT);
+    os_time_dly(1);         /* let the pull-ups settle: one 10 ms tick */
+    for (u32 ms = 0; e2_key_entry_held(); ms += 10) {
         if (ms >= E2_UPDATE_HOLD_MS) {
             e2_update_enter();
         }
         wdt_clear();
-        os_time_dly(1);     /* one 10 ms tick */
+        os_time_dly(1);
     }
 #endif
 }
