@@ -1,9 +1,9 @@
-# E2 Control page turner: reverse engineering and Kindle firmware
+# E2 Control page turner: Kindle firmware and reverse engineering
 
-This repository has two parts, both for the **HANLINYUE E2 Control** Bluetooth page turner:
+Two things for the **HANLINYUE E2 Control** Bluetooth page turner (Jieli AC632N chip):
 
-1. **Reverse-engineering notes and tools** for the vendor firmware.
-2. **Own firmware** (work in progress) that makes the remote look like Amazon's Kindle Click, so a stock Kindle pairs with it. See [Kindle firmware](#kindle-firmware-work-in-progress).
+1. **Own firmware** that makes the remote look like Amazon's Kindle Click, so a stock Kindle pairs with it. It works on a Kindle Colorsoft (2026-11-15).
+2. **Reverse-engineering notes and tools** for the vendor firmware. The own firmware is built on them.
 
 The data comes from probes of one unit and from the vendor's public download servers.
 
@@ -12,7 +12,64 @@ make help    # list all targets
 make test    # run all host tests (no device, no Docker)
 ```
 
-## Device identity
+## Kindle firmware
+
+A stock Kindle (2024 models onward, software 5.20.1.0.2) accepts only one page turner: Amazon's Kindle Click, which it recognizes by its Bluetooth IDs. This firmware presents those IDs and sends the Kindle Click's keys. The Kindle lists the remote as a "Kindle Click".
+
+| Input | Page mode | Brightness mode |
+|---|---|---|
+| Next / previous, short press | next / previous page | one step brighter / dimmer |
+| Next / previous, held | nothing | keeps changing the brightness |
+| Third button, short press | go to brightness mode | go to page mode |
+| Third button, long press | Kindle sleeps | Kindle sleeps |
+| Third button, held about 28 s | forget the pairing | forget the pairing |
+
+The remote starts in page mode. Brightness mode ends 15 s after the last press; the LED is steady on while it lasts. The side selector does nothing.
+
+### Before you flash
+
+- There is no recovery tool for this unit. A firmware that is written correctly but does not start locks you out. This unit was locked out for five days, and the cause is unknown.
+- Flash only an AC632N image built on your unit's own image. An image for another chip can make the device unusable. The vendor's Kindle builds for other models are AC636N images. `e2boot.py flash` refuses an image whose boot area differs from the device's.
+- The updater cannot read flash, so there is no dump. Before the first write, find your variant with `e2boot.py verify` and keep that image. Pairing data and settings are not saved.
+- Go through the "Before flashing" checklist in [`fw/README.md`](fw/README.md).
+
+### Build and flash
+
+```sh
+make fw-build                                         # build fw/out/app.bin in the Jieli toolchain container (Docker)
+make fw-image base=firmware/e2control-<variant>.bin   # put the app into your unit's image -> fw/out/e2-kindle.bin
+make fw-rescue yes=1                                  # WRITES TO THE DEVICE: wait for the E2 on USB, flash, reboot
+```
+
+The steps one at a time, with `tools/e2boot.py` (needs `brew install hidapi`):
+
+```sh
+python3 -I tools/e2boot.py enter /dev/cu.usbmodemXXXX --yes   # normal mode -> update mode
+python3 -I tools/e2boot.py verify <image>                     # read-only: which blocks differ from <image>
+python3 -I tools/e2boot.py flash fw/out/e2-kindle.bin --yes
+python3 -I tools/e2boot.py reboot --yes
+```
+
+To go back to the stock firmware, flash your unit's vendor image the same way.
+
+### Status and open points
+
+Checked on the unit: pairing, page turns, sleep, brightness mode, and the update path from the own firmware.
+
+- **The lockout.** Its cause is unknown, so it can happen again. The only other way in is the chip ROM's USB download mode, which needs a forced-download tool.
+- **Power-off and wake-up.** Untested. The firmware never switches the unit off, so the battery drains while it is on.
+- **Battery level.** The Kindle is told a fixed 88 %.
+- **Board pins.** They come from the stock firmware's tables (`fw/patches/0005-e2-board.patch`). The keys, the LED and the USB-power sense behave as expected; the wake-up pins and the side selector are untested.
+
+| Document | Content |
+|---|---|
+| [`fw/README.md`](fw/README.md) | Build notes, buttons, board pins, power behavior, "Before flashing" checklist |
+| [`docs/update-path.md`](docs/update-path.md) | The updater's protocol, and everything observed on the device |
+| [Kindle Click design](docs/superpowers/specs/2026-11-09-kindle-click-firmware-design.md) | What the Kindle requires, behavior of the remote, owner decisions |
+| [Brightness mode design](docs/superpowers/specs/2026-11-15-brightness-mode-design.md) | The third button's mode switch |
+| [`docs/superpowers/plans/`](docs/superpowers/plans/) | The task plans for both designs |
+
+## The stock device
 
 | | Value |
 |---|---|
@@ -27,7 +84,7 @@ make test    # run all host tests (no device, no Docker)
 
 The Device Information strings are the defaults in Jieli's SDK: [`fw-AC63_BT_SDK`](https://github.com/Jieli-Tech/fw-AC63_BT_SDK), `apps/hid/modules/bt/ble_hogp.c`.
 
-### How it turns pages
+### How the stock firmware turns pages
 
 Over Bluetooth the device is a HID with these reports:
 
@@ -36,9 +93,9 @@ Over Bluetooth the device is a HID with these reports:
 
 The USB port does not send key presses. The vendor app uses it for configuration and firmware updates. The command `{"o":"JUMPBOOT"}` puts the device in update mode; see [`docs/update-path.md`](docs/update-path.md).
 
-## Firmware
+## Vendor firmware images
 
-The [`firmware/`](firmware/) folder holds the vendor manifests and `SHA256SUMS`. The images themselves are not in git; download them as described below. All images are raw flash images (`jl_isd.bin`) for the AC632N. The plain header shows version `0.01`. The body is scrambled; `tools/jlimg.py` unscrambles it (see [Reverse engineering](#reverse-engineering)).
+The [`firmware/`](firmware/) folder holds the vendor manifests and `SHA256SUMS`. The images are not in git; download them as described below. All are raw flash images (`jl_isd.bin`) for the AC632N. The body is scrambled; `tools/jlimg.py` unscrambles it.
 
 | File | Vendor variant | Target |
 |---|---|---|
@@ -48,15 +105,13 @@ The [`firmware/`](firmware/) folder holds the vendor manifests and `SHA256SUMS`.
 | `e2control-yuexingtong.bin` | 阅星瞳 | YueXingTong readers |
 | `e2control-zoom-bundled-in-installer.bin` | 缩放版, older build | Copy inside the Windows updater |
 
-Check the files:
-
 ```sh
 cd firmware && shasum -a 256 -c SHA256SUMS
 ```
 
-Each image matches a SHA-512 value in `manifest_en_US.json` or `manifest_zh_CN.json`. The manifest labels are not consistent between languages, so match files by hash, not by label. The firmware on your unit can be any of these variants. All five report version `V0.04` over USB, so the version does not tell them apart. `tools/e2boot.py verify <image>` does: it compares block checksums through the unit's updater. The unit studied here ran `zoom-phone-tablet`.
+Each image matches a SHA-512 value in `manifest_en_US.json` or `manifest_zh_CN.json`. The manifest labels differ between languages, so match files by hash. All five variants report version `V0.04` over USB, so the version does not tell them apart. `tools/e2boot.py verify <image>` does: it compares block checksums through the unit's updater. The unit studied here ran `zoom-phone-tablet`.
 
-### Where the files come from
+Where the files come from:
 
 1. The vendor download page, <https://hanlinyue.com.cn/1772613776748>, links the E2 updater: `https://cdn.hanlinyue.com.cn/hanlinyue-E2-bwjh.exe`.
 2. The `.exe` is an NSIS installer for an Electron app. Unpack it with `7zz x`, then unpack `$PLUGINSDIR/app-64.7z`. You do not need to run it.
@@ -70,32 +125,13 @@ The firmware server uses plain HTTP. The hashes prove only that the files match 
 
 The AC632N is Jieli's **BD19** family. Its CPU uses the **q32s** instruction set (the SDK listing says `ELF32-q32s`), not pi32v2.
 
-### Quick start
-
 ```sh
 make firmware-unpack                           # decrypt + split all images into extracted/
 make ghidra-score                              # check the q32s decoder against the vendor ROM listing
 make ghidra-import variant=zoom-phone-tablet   # analyze one variant into ghidra/project/E2
 ```
 
-`GHIDRA_HOME` defaults to `~/code/mine/ghidra-bundle/dist/ghidra_12.2_PUBLIC`; override it on the command line. `make ghidra-install` (run by `ghidra-import`) compiles the SLEIGH specs and copies `ghidra/JieLi` into `$GHIDRA_HOME/Ghidra/Processors/JieLi`. Restart the Ghidra GUI after this, then open `ghidra/project/E2.gpr`. `make ghidra-import` also writes all pseudo-C to `extracted/<variant>/ghidra/decompiled.c`.
-
-### Layout
-
-| Path | Content |
-|---|---|
-| `tools/jlimg.py` | Unpacks `jl_isd.bin` (boot table, `uboot.boot`, app area, `app.bin`, `cfg_tool.bin`, `layout.json`) and checks every CRC. `pack` puts a new `app.bin` into an existing image and keeps all other bytes. |
-| `tools/e2boot.py` | Client for the unit's USB updater: enter update mode, compare the flash with an image by block CRC, flash, reboot. Needs `hidapi` (`brew install hidapi`). Protocol: [`docs/update-path.md`](docs/update-path.md). |
-| `tools/romlst.py` | Rebuilds the BD19 mask ROM (`0x100000`–`0x107000`) and its labels from the SDK's `rom.lst`. |
-| `tools/q32s_score.py` | Compares Ghidra's decoding with the vendor objdump. |
-| `tools/fndiff.py` | Compares variants by normalized decompiled C, per function. |
-| `tools/hiddesc.py` | Prints HID report descriptor items from a flash range. |
-| `ghidra/JieLi/` | Ghidra processor module (Quarkslab fork, q32s fixed here; see its README). |
-| `ghidra/scripts/` | `SetupE2` (memory map, labels), `Reanalyze` (analysis to a fixed point), `ExportE2` (pseudo-C), `DisasmAt`, `DumpErrors`, `Xrefs`. |
-| `sdk/` | Two reference files from the Jieli SDK. |
-| `fw/` | Own firmware: sources, SDK patches, container build. See [`fw/README.md`](fw/README.md). |
-| `docs/` | Design, plan, and update-mode findings. |
-| `extracted/`, `ghidra/project/`, `fw/sdk/`, `fw/out/` | Generated. Not committed. |
+`GHIDRA_HOME` defaults to `~/code/mine/ghidra-bundle/dist/ghidra_12.2_PUBLIC`; override it on the command line. `make ghidra-import` compiles the SLEIGH specs, copies `ghidra/JieLi` into `$GHIDRA_HOME/Ghidra/Processors/JieLi`, and writes all pseudo-C to `extracted/<variant>/ghidra/decompiled.c`. Restart the Ghidra GUI after it, then open `ghidra/project/E2.gpr`.
 
 ### Findings
 
@@ -114,7 +150,7 @@ make ghidra-import variant=zoom-phone-tablet   # analyze one variant into ghidra
 - **Decoder status.** All 9,746 ROM instructions decode at the right length. The zoom image gives 1,276 functions with 5 error bookmarks; kobo gives 1,555 functions with 2. Every function decompiles.
 - **Known gaps.** No peripheral (SFR) register map yet. Opcodes that appear in neither the ROM nor these images are not checked. Check the vendor listing before you trust a rare instruction.
 
-### Button behavior (zoom build)
+### Button behavior of the stock firmware (zoom build)
 
 Found by comparing the variants with `tools/fndiff.py`. Apart from relocation, `yuexingtong` and `zoom-phone-tablet` differ in a single button function. Addresses below are in `zoom-phone-tablet`.
 
@@ -135,53 +171,26 @@ Found by comparing the variants with `tools/fndiff.py`. Apart from relocation, `
 
 Ghidra misses the click handlers' jump table (`tbb` at `0x1E05D2A`) and the gesture functions `0x1E05C02` and `0x1E05C54`. Read them in the disassembly.
 
-## Kindle firmware (work in progress)
+## Repository layout
 
-**Goal.** A stock Kindle (2024 models onward, software 5.20.1.0.2) accepts only one page turner: Amazon's Kindle Click, which it recognizes by its Bluetooth IDs. This firmware makes the E2 Control present those IDs and send Page Up / Page Down.
-
-| Document | Content |
+| Path | Content |
 |---|---|
-| [Design](docs/superpowers/specs/2026-11-09-kindle-click-firmware-design.md) | What the Kindle requires, behavior of the remote, owner decisions |
-| [Plan](docs/superpowers/plans/2026-11-09-kindle-click-firmware.md) | Tasks and their order |
-| [`fw/README.md`](fw/README.md) | Build notes, library findings, power behavior, **"Before flashing" checklist** |
-| [`docs/update-path.md`](docs/update-path.md) | How update mode is entered; what was observed on the device |
+| `fw/` | Own firmware: sources, SDK patches, container build. See [`fw/README.md`](fw/README.md). |
+| `tools/jlimg.py` | Unpacks `jl_isd.bin` and checks every CRC. `pack` puts a new `app.bin` into an existing image and keeps all other bytes. |
+| `tools/e2boot.py` | Client for the unit's USB updater: enter update mode, compare the flash with an image by block CRC, flash, reboot. |
+| `tools/romlst.py`, `tools/q32s_score.py` | Rebuild the BD19 mask ROM from the SDK's `rom.lst`; compare Ghidra's decoding with it. |
+| `tools/fndiff.py`, `tools/hiddesc.py` | Compare variants by decompiled C, per function; print HID report descriptors from a flash range. |
+| `ghidra/JieLi/` | Ghidra processor module (Quarkslab fork, q32s fixed here; see its README). |
+| `ghidra/scripts/` | `SetupE2` (memory map, labels), `Reanalyze` (analysis to a fixed point), `ExportE2` (pseudo-C), `DisasmAt`, `DumpErrors`, `Xrefs`. |
+| `sdk/` | Two reference files from the Jieli SDK. |
+| `firmware/` | Vendor manifests and hashes. The images are not committed. |
+| `docs/` | Designs, plans, and the device record. |
+| `extracted/`, `ghidra/project/`, `fw/sdk/`, `fw/out/` | Generated. Not committed. `make clean` removes all but `fw/sdk/`. |
 
-```sh
-make fw-test                        # host tests for the Kindle Click logic
-make tools-test                     # image-packer tests (needs firmware/*.bin) and updater-client tests
-make fw-build                       # build fw/out/app.bin in the Jieli toolchain container (Docker)
-make fw-image base=<your image>     # put the built app into your unit's image -> fw/out/e2-kindle.bin
-make fw-rescue yes=1                # WRITES TO THE DEVICE: wait for the E2 on USB, flash fw/out/e2-kindle.bin, reboot
-```
-
-**Status (2026-11-15): it works.** The Kindle Colorsoft pairs with the E2 as a "Kindle Click". Next and previous turn pages, a long press on the third button puts the Kindle to sleep, and a short press on it switches next and previous to screen brightness. The record is in [`docs/update-path.md`](docs/update-path.md), including a lockout on 2026-11-10 whose cause is still unknown: the unit stopped starting after it was switched off, and came back by itself five days later.
-
-Done on the device:
-
-- With the stock firmware: `get` queries, `JUMPBOOT`, and a read of every block's CRC through the boot-area updater (`tools/e2boot.py`). The unit ran the vendor's `zoom-phone-tablet` image.
-- Restore proof: the stock image was written back with `tools/e2boot.py flash` and the unit worked.
-- First custom flash, and the update path from the custom firmware (used three times).
-- Pairing with the Kindle Colorsoft, page turns, sleep, brightness mode.
-
-Open points:
-
-- **The lockout.** Its cause is unknown, so it can happen again. The only other way in is the chip ROM's USB download mode, which needs a forced-download tool.
-- **Backup.** The updater cannot read flash. The backup is the vendor image that the unit was proven to hold; pairing data and settings are not saved.
-- **Board pins.** They come from the stock firmware's tables (`fw/patches/0005-e2-board.patch`). The keys, the LED and the USB-power sense behave as expected on the unit; the wake-up pins and the side selector are untested.
-- **Power-off and wake-up.** Untested. Self power-off is disabled in the sources until wake-up is proven, so the battery drains while the unit is on.
-- **Battery level.** The Kindle is told a fixed 88 %.
-
-## Reverse-engineering resources
+## Resources
 
 - [osteotek/hlyflash](https://github.com/osteotek/hlyflash): CLI for Hanlinyue AC632N/AC636N page turners. It reads device info, parses `.ufw` files, implements the ENC cipher, and dumps flash.
 - [kagaimiq/jl-uboot-tool](https://github.com/kagaimiq/jl-uboot-tool): Jieli USB "UBOOT" dumper and flasher.
 - [kagaimiq/jielie](https://kagaimiq.github.io/jielie/misc/cipher.html): notes on Jieli ciphers and data formats.
 - [quarkslab/ghidra-jieli](https://github.com/quarkslab/ghidra-jieli): Ghidra module for pi32, pi32v2 and q32s. `ghidra/JieLi` starts from it. See also the [SSTIC 2026 paper on pi32v2](https://www.sstic.org/media/SSTIC2026/SSTIC-actes/retro-ingenierie-micrologiciel-pi32v2/SSTIC2026-Article-retro-ingenierie-micrologiciel-pi32v2-cauquil.pdf).
 - [Jieli-Tech](https://github.com/Jieli-Tech): public SDKs. The Bluetooth stack ships as binary `lib.a` files only.
-
-## Warnings
-
-- Flash only an AC632N image built on your unit's own image. An image for a different chip, for example AC636N, can make the device unusable. The vendor's Kindle builds for other models are AC636N images. `e2boot.py flash` refuses an image whose boot area differs from the device's.
-- There is no recovery tool for this unit. A firmware that is written correctly but does not start locks you out. That happened here.
-- The updater cannot read flash, so there is no dump. Before the first write, find your variant with `e2boot.py verify` and keep that image.
-- Do not flash the own firmware until the checklist in [`fw/README.md`](fw/README.md) holds.
