@@ -7,7 +7,8 @@
 #define KC_REPORT_ID   1
 #define KC_REPORT_LEN  10   /* without the report ID: mod, rsvd, key[6], consumer lo, hi */
 
-typedef enum { KC_NONE = 0, KC_PREV_PAGE, KC_NEXT_PAGE, KC_SLEEP, KC_CLEAR_BOND } kc_action_t;
+/* KC_CLEAR_BOND has no report. */
+typedef enum { KC_NONE = 0, KC_PREV_PAGE, KC_NEXT_PAGE, KC_SLEEP, KC_CLEAR_BOND, KC_BRIGHT_UP, KC_BRIGHT_DOWN } kc_action_t;
 
 extern const uint8_t  kc_adv_data[];     extern const uint8_t  kc_adv_data_len;
 extern const uint8_t  kc_report_map[];   extern const uint16_t kc_report_map_len;

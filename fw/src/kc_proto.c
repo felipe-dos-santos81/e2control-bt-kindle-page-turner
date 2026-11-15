@@ -46,6 +46,8 @@ void kc_report_press(kc_action_t a, uint8_t out[KC_REPORT_LEN])
     case KC_NEXT_PAGE: out[2] = 0x4E; break;   /* keyboard Page Down */
     case KC_PREV_PAGE: out[2] = 0x4B; break;   /* keyboard Page Up */
     case KC_SLEEP:     out[8] = 0x30; break;   /* consumer Power, 0x0030 */
+    case KC_BRIGHT_UP:   out[8] = 0x6F; break; /* consumer Display Brightness Increment, 0x006F */
+    case KC_BRIGHT_DOWN: out[8] = 0x70; break; /* consumer Display Brightness Decrement, 0x0070 */
     default: break;
     }
 }

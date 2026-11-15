@@ -55,7 +55,8 @@
  #define TCFG_IOKEY_NEXT_CONNECT_WAY 		ONE_PORT_TO_LOW  //按键一端接低电平一端接IO
 -#define TCFG_IOKEY_NEXT_ONE_PORT			IO_PORTB_02
 +#define TCFG_IOKEY_NEXT_ONE_PORT			IO_PORTA_02        //E2 key 3
- #define TCFG_IOKEY_NEXT_ONE_PORT_VALUE		0x3              //next port键值
+-#define TCFG_IOKEY_NEXT_ONE_PORT_VALUE		0x3              //next port键值
++#define TCFG_IOKEY_NEXT_ONE_PORT_VALUE		0x83             //E2 key 3. BIT(7): single clicks only, reported at the release (key_driver.c); the app sees 3
  
  //*********************************************************************************//
  //                                 adkey 配置                                      //

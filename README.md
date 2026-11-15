@@ -92,7 +92,7 @@ make ghidra-import variant=zoom-phone-tablet   # analyze one variant into ghidra
 | `tools/hiddesc.py` | Prints HID report descriptor items from a flash range. |
 | `ghidra/JieLi/` | Ghidra processor module (Quarkslab fork, q32s fixed here; see its README). |
 | `ghidra/scripts/` | `SetupE2` (memory map, labels), `Reanalyze` (analysis to a fixed point), `ExportE2` (pseudo-C), `DisasmAt`, `DumpErrors`, `Xrefs`. |
-| `sdk/` | Three reference files from the Jieli SDK. |
+| `sdk/` | Two reference files from the Jieli SDK. |
 | `fw/` | Own firmware: sources, SDK patches, container build. See [`fw/README.md`](fw/README.md). |
 | `docs/` | Design, plan, and update-mode findings. |
 | `extracted/`, `ghidra/project/`, `fw/sdk/`, `fw/out/` | Generated. Not committed. |
@@ -108,7 +108,7 @@ make ghidra-import variant=zoom-phone-tablet   # analyze one variant into ghidra
   |---|---|
   | `0x00000`–`0x0FFFF` | RAM. At boot, the startup code copies `.data` to `0x840` and RAM-resident code to `0x41E0` (kobo: `0x67A0`, touchpad: `0x4200`). |
   | `0x100000`–`0x107000` | Mask ROM. The stubs at `0x106D98`+ are listed in `sdk/maskrom_stubs.ld`. |
-  | `0x1E00000` | App area. `app.bin` runs from `0x1E00120` (`CODE_BEG` in `sdk/sdk_ld.c`). |
+  | `0x1E00000` | App area. `app.bin` runs from `0x1E00120` (`CODE_BEG` in the SDK's `cpu/bd19/sdk_ld.c`). |
 
 - **Branch wrap.** The 23-bit PC-relative branches wrap at 32 MB. This is how flash code calls the ROM. With the wrap, all 282 ROM-bound calls in `app.bin` land exactly on a `maskrom_stubs.ld` label.
 - **Decoder status.** All 9,746 ROM instructions decode at the right length. The zoom image gives 1,276 functions with 5 error bookmarks; kobo gives 1,555 functions with 2. Every function decompiles.
@@ -154,21 +154,22 @@ make fw-image base=<your image>     # put the built app into your unit's image -
 make fw-rescue yes=1                # WRITES TO THE DEVICE: wait for the E2 on USB, flash fw/out/e2-kindle.bin, reboot
 ```
 
-**Status (2026-11-10): the unit is locked out.** A first build was flashed and ran: it answered on USB and went into update mode on command. After the unit was switched off it has not started again. The likely cause is the SDK's battery check at start, which the stock firmware does not use on this board. [`docs/update-path.md`](docs/update-path.md) has the record ("Lockout"). The sources now hold a build without that check. It has not run on the device.
+**Status (2026-11-15): it works.** The Kindle Colorsoft pairs with the E2 as a "Kindle Click". Next and previous turn pages, a long press on the third button puts the Kindle to sleep, and a short press on it switches next and previous to screen brightness. The record is in [`docs/update-path.md`](docs/update-path.md), including a lockout on 2026-11-10 whose cause is still unknown: the unit stopped starting after it was switched off, and came back by itself five days later.
 
 Done on the device:
 
 - With the stock firmware: `get` queries, `JUMPBOOT`, and a read of every block's CRC through the boot-area updater (`tools/e2boot.py`). The unit ran the vendor's `zoom-phone-tablet` image.
 - Restore proof: the stock image was written back with `tools/e2boot.py flash` and the unit worked.
-- First custom flash, and the update path from the custom firmware.
+- First custom flash, and the update path from the custom firmware (used three times).
+- Pairing with the Kindle Colorsoft, page turns, sleep, brightness mode.
 
 Open points:
 
-- **Getting back in.** Either a start that reaches USB, or the chip ROM's USB download mode, which needs a forced-download tool.
-- **Pairing.** The chip's Bluetooth library has no LE Secure Connections. The firmware offers legacy pairing. It is unknown whether the Kindle accepts that. The Kindle did not list the remote during the short time the first build ran.
+- **The lockout.** Its cause is unknown, so it can happen again. The only other way in is the chip ROM's USB download mode, which needs a forced-download tool.
 - **Backup.** The updater cannot read flash. The backup is the vendor image that the unit was proven to hold; pairing data and settings are not saved.
-- **Board pins.** Keys, LED and USB-power sense come from the stock firmware's tables (`fw/patches/0005-e2-board.patch`). They are not measured on the board.
-- **Power-off and wake-up.** Untested. Self power-off is disabled in the sources until wake-up is proven.
+- **Board pins.** They come from the stock firmware's tables (`fw/patches/0005-e2-board.patch`). The keys, the LED and the USB-power sense behave as expected on the unit; the wake-up pins and the side selector are untested.
+- **Power-off and wake-up.** Untested. Self power-off is disabled in the sources until wake-up is proven, so the battery drains while the unit is on.
+- **Battery level.** The Kindle is told a fixed 88 %.
 
 ## Reverse-engineering resources
 

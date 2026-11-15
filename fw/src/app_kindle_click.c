@@ -46,9 +46,10 @@ _Static_assert(KC_EV_FIFTH_CLICK == KEY_EVENT_FIRTH_CLICK, "KC_EV_FIFTH_CLICK");
 extern void ble_module_enable(u8 en);
 extern void le_hogp_set_PNP_info(const u8 *info);
 extern void le_hogp_set_pair_allow(void);
+extern int  ble_hid_is_connected(void);
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 
-static kc_keys_t   keys;                /* hold counting, see kc_keys.h */
+static kc_keys_t   keys;                /* hold count and mode, see kc_keys.h */
 static volatile u8 is_active;       /* 1: keep the system out of low power (soft power-off running) */
 
 /* report_map_size is filled in at start: kc_report_map_len is not a constant expression. */
@@ -68,11 +69,63 @@ static void clear_bond(void)
     ble_module_enable(1);           /* advertise again, at once or when the disconnect completes */
 }
 
+/*------------------------------------------------------------------ LED and mode */
+static u8  link_led = PWM_LED0_SLOW_FLASH;  /* the link's pattern, shown in page mode */
+static u16 mode_timer;                      /* pending one-shot for the end of brightness mode; 0: none */
+
+/* Stock drives the LED pin (PB5) with the SDK's pwm_led in one-IO mode; so do we, when the board config has it.
+ * Only a change reaches the driver, so a repeated call does not restart a flash pattern. */
+static void led(u8 pattern)
+{
+#if TCFG_PWMLED_ENABLE
+    if (pwm_led_display_mode_get() != pattern) {
+        pwm_led_mode_set(pattern);
+    }
+#else
+    (void)pattern;
+#endif
+}
+
+static void mode_timeout(void *priv);
+
+/* The LED follows the mode: steady on in brightness mode, the link's pattern in page mode. Brightness mode also
+ * ends by itself (kc_keys.h, KC_BRIGHTNESS_IDLE_MS), with no key event: a one-shot is set for that moment, so the
+ * LED goes off when the mode does. A third-button press made while the LED is on must leave the mode, not enter it
+ * (kc_keys.h, KC_KEY_LAG_MS, covers a press whose event arrives just after the LED went off). */
+static void show_mode(void)
+{
+    u32 left = kc_keys_brightness_ms_left(&keys, sys_timer_get_ms());
+
+    if (mode_timer) {
+        sys_timeout_del(mode_timer);
+        mode_timer = 0;
+    }
+    if (left) {
+        mode_timer = sys_timeout_add(NULL, mode_timeout, left);
+        if (!mode_timer) {
+            kc_keys_page_mode(&keys);   /* no timer: the LED could not show the mode's end, so no mode */
+            left = 0;
+        }
+    }
+    led(left ? PWM_LED0_ON : link_led);
+}
+
+static void mode_timeout(void *priv)
+{
+    mode_timer = 0;
+    show_mode();
+}
+
 /*------------------------------------------------------------------ keys */
 static void key_event(u8 key, u8 event)
 {
     u8 times;
-    kc_action_t a = kc_key_event(&keys, key, event, &times);
+    kc_action_t a = kc_key_event(&keys, key, event, sys_timer_get_ms(), &times);
+
+    if (!ble_hid_is_connected()) {
+        kc_keys_page_mode(&keys);   /* no Kindle to dim: brightness presses must not queue up for the next link */
+    }
+    show_mode();                    /* a click on the third button changed the mode, or a long press ended it */
 
     e2_power_on_key();              /* any key event re-arms the 30 min idle power-off */
 
@@ -83,30 +136,26 @@ static void key_event(u8 key, u8 event)
     }
 }
 
-/*------------------------------------------------------------------ LED */
-/* Stock drives the LED pin (PB5) with the SDK's pwm_led in one-IO mode; so do we, when the board config has it. */
-static void led(u8 mode)
-{
-#if TCFG_PWMLED_ENABLE
-    pwm_led_mode_set(mode);
-#endif
-}
-
 /*------------------------------------------------------------------ BLE events */
 static void ble_status_event(u8 status)
 {
     switch (status) {
     case BLE_ST_ADV:
         e2_power_on_adv_start();    /* 180 s without a connection: power off (e2_power.c) */
-        led(PWM_LED0_SLOW_FLASH);   /* waiting for the Kindle */
+        link_led = PWM_LED0_SLOW_FLASH;     /* waiting for the Kindle */
+        show_mode();
         break;
     case BLE_ST_CONNECT:
         e2_power_on_connected();
-        led(PWM_LED0_ONE_FLASH_5S);
+        link_led = PWM_LED0_ONE_FLASH_5S;
+        kc_keys_page_mode(&keys);   /* a new link starts in page mode */
+        show_mode();
         kc_send_link_down();        /* new link: not ready until encrypted */
         break;
     case BLE_ST_DISCONN:
         e2_power_on_disconnected();
+        kc_keys_page_mode(&keys);
+        show_mode();
         kc_send_link_down();
         break;
     case BLE_PRIV_PAIR_ENCRYPTION_CHANGE:

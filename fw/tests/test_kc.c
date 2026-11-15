@@ -25,6 +25,8 @@ static void test_reports(void) {
     kc_report_press(KC_NEXT_PAGE, r);  assert(r[2] == 0x4E && r[8] == 0 && r[9] == 0);
     kc_report_press(KC_PREV_PAGE, r);  assert(r[2] == 0x4B && r[3] == 0);
     kc_report_press(KC_SLEEP, r);      assert(r[2] == 0 && r[8] == 0x30 && r[9] == 0x00);
+    kc_report_press(KC_BRIGHT_UP, r);   assert(r[2] == 0 && r[8] == 0x6F && r[9] == 0x00);
+    kc_report_press(KC_BRIGHT_DOWN, r); assert(r[2] == 0 && r[8] == 0x70 && r[9] == 0x00);
     kc_report_press(KC_CLEAR_BOND, r); for (int i = 0; i < KC_REPORT_LEN; i++) assert(r[i] == 0);
     kc_report_release(r);              for (int i = 0; i < KC_REPORT_LEN; i++) assert(r[i] == 0);
 }
@@ -76,22 +78,90 @@ static void test_keys(void) {
 }
 static void test_key_event(void) {
     kc_keys_t k = {0}; uint8_t t;
-    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_CLICK, &t) == KC_PREV_PAGE && t == 1);
-    assert(kc_key_event(&k, KC_KEY_NEXT, KC_EV_DOUBLE_CLICK, &t) == KC_NEXT_PAGE && t == 2);   /* multi-click: that many presses */
-    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_FIFTH_CLICK, &t) == KC_PREV_PAGE && t == KC_QUEUE_LEN);
-    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_LONG, &t) == KC_NONE && t == 0);
-    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_CLICK, &t) == KC_NONE && t == 0);
-    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_DOUBLE_CLICK, &t) == KC_NONE && t == 0);
-    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_LONG, &t) == KC_SLEEP && t == 1);
+    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_CLICK, 0, &t) == KC_PREV_PAGE && t == 1);
+    assert(kc_key_event(&k, KC_KEY_NEXT, KC_EV_DOUBLE_CLICK, 0, &t) == KC_NEXT_PAGE && t == 2);   /* multi-click: that many presses */
+    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_FIFTH_CLICK, 0, &t) == KC_PREV_PAGE && t == KC_QUEUE_LEN);
+    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_LONG, 0, &t) == KC_NONE && t == 0);
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_CLICK, 0, &t) == KC_NONE && t == 0);
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_DOUBLE_CLICK, 0, &t) == KC_NONE && t == 0);
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_LONG, 0, &t) == KC_SLEEP && t == 1);
     for (int i = 1; i < KC_CLEAR_BOND_HOLDS; i++)                    /* holds 1..182: nothing, no repeated Sleep */
-        assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, &t) == KC_NONE && t == 0);
-    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, &t) == KC_CLEAR_BOND && t == 1);   /* exactly on hold 183 */
-    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, &t) == KC_NONE);                   /* and only once */
-    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_UP, &t) == KC_NONE);                     /* release restarts the count */
+        assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, 0, &t) == KC_NONE && t == 0);
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, 0, &t) == KC_CLEAR_BOND && t == 1);   /* exactly on hold 183 */
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, 0, &t) == KC_NONE);                   /* and only once */
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_UP, 0, &t) == KC_NONE);                     /* release restarts the count */
     for (int i = 1; i < KC_CLEAR_BOND_HOLDS; i++)
-        assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, &t) == KC_NONE);
-    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_HOLD, &t) == KC_NONE);                  /* another key does not disturb it */
-    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, &t) == KC_CLEAR_BOND);
+        assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, 0, &t) == KC_NONE);
+    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_HOLD, 0, &t) == KC_NONE);                  /* another key does not disturb it */
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, 0, &t) == KC_CLEAR_BOND);
+}
+
+static bool lit(const kc_keys_t *k, uint32_t now_ms) {      /* what the LED shows: brightness mode */
+    return kc_keys_brightness_ms_left(k, now_ms) != 0;
+}
+
+static void test_brightness_mode(void) {
+    kc_keys_t k = {0}; uint8_t t;
+    assert(!lit(&k, 0));                                                            /* starts in page mode */
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_CLICK, 1000, &t) == KC_NONE && t == 0);
+    assert(lit(&k, 1000));
+    assert(kc_key_event(&k, KC_KEY_NEXT, KC_EV_CLICK, 1100, &t) == KC_BRIGHT_UP && t == 1);
+    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_CLICK, 1200, &t) == KC_BRIGHT_DOWN && t == 1);
+    assert(kc_key_event(&k, KC_KEY_NEXT, KC_EV_TRIPLE_CLICK, 1300, &t) == KC_BRIGHT_UP && t == 3);
+    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_LONG, 2000, &t) == KC_BRIGHT_DOWN && t == 1);   /* held */
+    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_HOLD, 2150, &t) == KC_BRIGHT_DOWN && t == 1);
+    assert(kc_key_event(&k, KC_KEY_PREV, KC_EV_UP, 2300, &t) == KC_NONE && t == 0);            /* release: no step */
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_CLICK, 3000, &t) == KC_NONE && t == 0);          /* toggle back */
+    assert(!lit(&k, 3000));
+    assert(kc_key_event(&k, KC_KEY_NEXT, KC_EV_CLICK, 3100, &t) == KC_NEXT_PAGE && t == 1);
+    assert(kc_key_event(&k, KC_KEY_NEXT, KC_EV_LONG, 3200, &t) == KC_NONE && t == 0);          /* page mode: held does nothing */
+}
+
+static void test_brightness_mode_ends(void) {
+    const uint32_t end = 6000 + KC_BRIGHTNESS_IDLE_MS;                              /* the LED goes off here */
+    kc_keys_t k = {0}, at_end; uint8_t t;
+    kc_key_event(&k, KC_KEY_AUX, KC_EV_CLICK, 5000, &t);
+    kc_key_event(&k, KC_KEY_NEXT, KC_EV_CLICK, 6000, &t);                           /* re-arms the 15 s */
+    assert(kc_keys_brightness_ms_left(&k, 6000) == KC_BRIGHTNESS_IDLE_MS);          /* the time left, for the caller's timer */
+    assert(kc_keys_brightness_ms_left(&k, end - 10) == 10);
+    assert(lit(&k, end - 1) && !lit(&k, end));
+    at_end = k;
+
+    /* An event arrives after its press. One that arrives within KC_KEY_LAG_MS of the end was pressed while the
+     * LED was on, so it still counts as made in brightness mode. */
+    assert(kc_key_event(&k, KC_KEY_NEXT, KC_EV_CLICK, end + KC_KEY_LAG_MS - 1, &t) == KC_BRIGHT_UP && t == 1);
+    assert(lit(&k, end + KC_KEY_LAG_MS - 1));                                       /* and it re-arms the mode */
+    k = at_end;
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_CLICK, end + KC_KEY_LAG_MS - 1, &t) == KC_NONE);
+    assert(!lit(&k, end + KC_KEY_LAG_MS - 1));                                      /* third button: leaves, not enters */
+    assert(kc_key_event(&k, KC_KEY_NEXT, KC_EV_CLICK, end + KC_KEY_LAG_MS, &t) == KC_NEXT_PAGE);
+    k = at_end;
+    assert(kc_key_event(&k, KC_KEY_NEXT, KC_EV_CLICK, end + KC_KEY_LAG_MS, &t) == KC_NEXT_PAGE && t == 1);
+    assert(!lit(&k, end + KC_KEY_LAG_MS));
+    k = at_end;
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_CLICK, end + KC_KEY_LAG_MS, &t) == KC_NONE);
+    assert(lit(&k, end + KC_KEY_LAG_MS));                                           /* later: enters again */
+
+    k = (kc_keys_t){0};                                                             /* the clock wraps */
+    kc_key_event(&k, KC_KEY_AUX, KC_EV_CLICK, 0xFFFFFF00u, &t);
+    assert(kc_key_event(&k, KC_KEY_NEXT, KC_EV_CLICK, 0x00000100u, &t) == KC_BRIGHT_UP);
+    assert(lit(&k, 0x00000100u + KC_BRIGHTNESS_IDLE_MS - 1));                       /* not early after the wrap */
+    assert(!lit(&k, 0x00000100u + KC_BRIGHTNESS_IDLE_MS));
+
+    k = (kc_keys_t){0};                                                             /* long press: sleep, page mode */
+    kc_key_event(&k, KC_KEY_AUX, KC_EV_CLICK, 100, &t);
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_LONG, 900, &t) == KC_SLEEP && t == 1);
+    assert(!lit(&k, 900));
+    for (int i = 1; i <= KC_CLEAR_BOND_HOLDS; i++) {                                /* the forget count is intact */
+        kc_action_t a = kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, 900 + 150u * i, &t);
+        assert((a == KC_CLEAR_BOND) == (i == KC_CLEAR_BOND_HOLDS));
+    }
+
+    k = (kc_keys_t){0};                                                             /* link change: page mode */
+    kc_key_event(&k, KC_KEY_AUX, KC_EV_CLICK, 100, &t);
+    kc_keys_page_mode(&k);
+    assert(!lit(&k, 100));
+    assert(kc_key_event(&k, KC_KEY_NEXT, KC_EV_CLICK, 200, &t) == KC_NEXT_PAGE);
 }
 static void test_link(void) {
     kc_link_t l; kc_link_reset(&l);
@@ -234,6 +304,8 @@ int main(void) {
     test_report_map(); puts("ok test_report_map");
     test_keys();       puts("ok test_keys");
     test_key_event();  puts("ok test_key_event");
+    test_brightness_mode();      puts("ok test_brightness_mode");
+    test_brightness_mode_ends(); puts("ok test_brightness_mode_ends");
     test_link();       puts("ok test_link");
     test_link_fifo_reset_stale_cccd(); puts("ok test_link_fifo_reset_stale_cccd");
     test_update_cmd(); puts("ok test_update_cmd");

@@ -141,6 +141,53 @@ Forced download, read from this chip's ROM listing (`sdk/rom.lst`, `usb_key_isr`
 - Not read yet: when after a reset the ROM listens, and for how long. Not tried on the unit.
 - After that, a host tool for the ROM loader is needed (`hlyflash` or `jl-uboot-tool`, with the BD19 loader from the SDK). hlyflash states that BD19 is untested.
 
+## Back in, and first pairing (2026-11-15)
+
+Observed:
+
+- Five days after the lockout the unit was on USB as a serial device again, running the first custom build. What brought it back is unknown; it had been left alone since 2026-11-10.
+- `e2boot.py rescue` flashed the fixed build (36 of 42 blocks differed, verified) and rebooted it. For the first minute the serial port was busy; then the update command went through.
+- Status line of the fixed build, on USB power: `vbat=406 pa8=2025 pa1=642 usb=1 pb6=0`. PA7 reads high with the cable in. PB6 reads low.
+- A Bluetooth scan from the Mac saw the unit as connectable, with manufacturer data `71 01 04 43`, service `1812` and the name `E2 Control(BLE)`.
+- **The Kindle Colorsoft listed it and paired with it as a "Kindle Click".**
+
+Inferred:
+
+- The chip's own VBAT reading (4.06 V) and the battery pin (2.02 V x 2) agree, so on this board the chip's VBAT pin is the battery.
+- The Kindle accepts this chip's legacy pairing.
+
+Consequence for the lockout: a battery at 4.06 V does not fail the SDK's 3.30 V check, so that check as the cause is in doubt unless the battery was low on 2026-11-10 (the stock firmware reported 100). The cause stays unknown.
+
+Later the same day the owner reported: next and previous turn pages, and a long press on the third button puts the Kindle to sleep. A short press on the third button did nothing in that build.
+
+## Brightness mode on the unit (2026-11-15)
+
+Observed:
+
+- `e2boot.py enter`, `flash` (36 of 42 blocks differed, written and verified), `verify` (42 of 42 blocks match) and `reboot` put the brightness build on the unit. Image: `fw/out/e2-kindle.bin`, SHA-256 starting `49047d7822605b87`.
+- The serial port came back within seconds and the status line answered.
+- The owner ran the five checks of `docs/superpowers/plans/2026-11-15-brightness-mode.md`, Task 4, and reported that all of them worked:
+  1. Next and previous turn pages after start.
+  2. A short press on the third button: LED steady on; next makes the screen brighter, previous dimmer, also while held.
+  3. A second short press: next and previous turn pages again.
+  4. A short press, then 15 s without a press: the LED leaves steady on, and next turns a page.
+  5. A short press, then a long press on the third button: the Kindle sleeps; after waking, next turns a page.
+- The unit reconnected to the Kindle after the reboot without a new pairing.
+
+Inferred:
+
+- The update path works from the custom firmware every time it was used (three times so far).
+- The Kindle Colorsoft acts on consumer usages `0x006F` and `0x0070`, and keeps up with one step every 0.15 s.
+- The LED is on PB5, as in the stock firmware. Checks 2 and 4 name the LED and the owner reported them as working; the owner did not describe the LED separately.
+
+Unknown:
+
+- Why the status line read differently right after this reboot: `vbat=460 pa8=2310..2393 pb6=1` at `up=18`, against `vbat=406 pa8=2025 pb6=0` earlier the same day. Both readings were on USB power. One reading of it: the battery was charging earlier (PB6 low) and was full later (PB6 high, about 4.6 V on the pin with the charger connected). That is not measured.
+
+Not on the unit yet: the build with the review fixes (third button as a click-only key, the 0.4 s rule at the 15 s return, no brightness mode without a link). The unit still runs the image above.
+
+Not yet reported: reconnection after the Kindle sleeps for a long time.
+
 ## Open questions for the device step
 
 - What the unit holds in the one differing block, and whether anything needs it.

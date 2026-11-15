@@ -68,7 +68,7 @@ Vendor reference (observed, `dump` of the vendor Kindle build `2387LJ` for AC636
 (PnP with `AUTHENTICATION_REQUIRED`), and RCSP `ae00`; no GATT `1801`. None of its HID entries needs encryption. Inferred from
 that: the Kindle starts pairing on its own, and the extra reports do not stop it. Not shown by it: whether the Kindle reads
 PnP ID successfully on that build (AC636N has a different library) or reacts well to Insufficient Encryption; the encryption
-flags here follow the design ("encryption required, MITM not") and standard HOGP behaviour, untested on the Kindle.
+flags here follow the design ("encryption required, MITM not") and standard HOGP behaviour. The Kindle Colorsoft pairs with them (2026-11-15).
 
 Board-dependent values come from the SDK board config (`board_ac632n_demo_cfg.h`, set for the E2 by `patches/0005-e2-board.patch`): key numbers
 (AD key values), soft-off wake-up pins (`TCFG_E2_WAKE_KEY1/2_PORT`, `TCFG_E2_USB_SENSE_PORT`, see "Power"), low-power mode, LED,
@@ -78,7 +78,7 @@ switch on a second, unguarded power-off).
 ## USB update entry
 
 The vendor updater can only reflash the E2 if the running app takes it into the boot area's USB HID updater
-(`uboot.boot`, kept unchanged by `jlimg.py pack`). This firmware keeps that entry. On the device (2026-11-10): the `JUMPBOOT` command worked from this firmware once; the key entry is untested.
+(`uboot.boot`, kept unchanged by `jlimg.py pack`). This firmware keeps that entry. On the device (2026-11-10): the `JUMPBOOT` command worked from this firmware three times (2026-11-10 and twice on 2026-11-15); the key entry is untested.
 Addresses are in the zoom-phone-tablet `app.bin` (load `0x1E00120`), Ghidra project `ghidra/project/E2`.
 
 **With the E2 board config the key entry is compiled in** (keys 1 and 2 held for 3 s at start). With the SDK's demo config it was not, because PA0 was the debug UART TX.
@@ -96,12 +96,38 @@ The unit has three push buttons and a side selector (Up/Down, Left/Right, Volume
 | AD input (values 0, 4, 5, 6; external pull-up): the side mode selector, inferred | PA1 | `adkey_data` `0x1E18EF4` |
 | USB-power sense (input, no internal pull) | PA7 | pin setup `0x1E054D0`, wake-up table |
 | Wake-up from soft-off | PB7, PA0, PA2, PA1 (falling), PA7 (rising) | RAM `0x864`..`0x87C` |
-| LED (SDK `pwm_led`, one-IO mode) | PB5 | `led_platform_data` `0x1E18E98` |
+| LED (SDK `pwm_led`, one-IO mode); reported working in the owner's checks (2026-11-15) | PB5 | `led_platform_data` `0x1E18E98` |
 | Charge status (input, pull-up; low while charging, inferred) | PB6 | `0x1E0558C` |
 | Analog inputs, use unknown | PA8, PA1 | board init `0x1E09BF2` |
 
 Ours: the three IO keys as stock, no debug UART (PA0 is key 2), wake-up on keys 1 and 2 and on PA7.
-The LED is driven as stock does (SDK `pwm_led`): slow flash while advertising, one flash every 5 s while connected.
+
+Buttons (design: `docs/superpowers/specs/2026-11-15-brightness-mode-design.md`). The remote starts in page mode.
+
+| Input | Page mode | Brightness mode |
+|---|---|---|
+| Third button, short press | go to brightness mode | go to page mode |
+| Next, short press | next page | one step brighter |
+| Previous, short press | previous page | one step dimmer |
+| Next or previous, double to fifth press | 2 to 4 page turns | 2 to 4 brightness steps |
+| Next or previous, held | nothing | one step after 0.75 s, then one step every 0.15 s |
+| Third button, long press | Kindle sleeps | Kindle sleeps; back to page mode |
+| Third button, held about 28 s | forget the pairing | same |
+
+Brightness mode ends by itself 15 s after the last button event, and when the link to the Kindle starts or drops.
+
+Known limits of the buttons:
+
+- A short press on next or previous is reported 0.2 s after the release (the SDK key driver waits for a second press).
+  A press on another button inside that 0.2 s cancels it.
+- The third button is a click-only key (key value `0x83` in the board config): its short press is reported at the
+  release, so nothing can cancel it, and every short press switches the mode. Not yet checked on the unit.
+- Brightness mode needs a link to the Kindle. Without one, a short press on the third button does nothing.
+- A press made just before the LED goes off still counts as made in brightness mode (`KC_KEY_LAG_MS`, 0.4 s), because
+  its event arrives after the press.
+
+The LED is driven as stock does (SDK `pwm_led`): slow flash while advertising, one flash every 5 s while connected,
+steady on in brightness mode.
 Not used by our firmware: the AD input, wake-up on key 3 and on PA1. The charge-status pin and the two analog pins are
 only read for the status line (send `?` on the serial port: `vbat`, `pa8`, `pa1`, `usb`, `pb6`, `up`). So the selector does
 nothing, including its Off position (unless Off cuts the battery in hardware, which is unknown). The AD key is off because
@@ -212,9 +238,9 @@ decision is the pure `kc_power_should_off` in `src/kc_power.c`, host-tested by `
 
 - **Powers off:** 180 s after advertising starts with no connection; 30 min after the last key event while connected (every
   key event re-arms it; it is dropped on disconnect and the 180 s rule takes over when advertising restarts). The SDK's
-  low-battery event does not occur: its battery detect is off (`TCFG_SYS_LVD_EN 0`), because it reads the chip's own VBAT pin.
+  low-battery event does not occur: its battery detect is off (`TCFG_SYS_LVD_EN 0`), because its check at start can power the unit off before USB starts.
 - **Power-off paths that do not consult the USB-power pin:** the SDK's boot-time check `check_power_on_voltage` is compiled
-  out (`TCFG_SYS_LVD_EN 0`; it is the likely cause of the lockout). One library-internal path remains: `cpu.a` (`rtc.c.o`,
+  out (`TCFG_SYS_LVD_EN 0`; it was the first suspect for the lockout, whose cause is unknown). One library-internal path remains: `cpu.a` (`rtc.c.o`,
   `p2m_rtc_cmd_trim`, a P11 message handler) calls `power_set_soft_poweroff` (seen in the IR; its trigger is not traced).
 - **Keeps it on:** USB power present, i.e. the sense pin `TCFG_E2_USB_SENSE_PORT` reads high (active high, plain GPIO input, no
   internal pull, as stock), at boot and at any time after. While it is high, both time references (the 180 s unconnected-since
@@ -257,8 +283,9 @@ What the prebuilt BD19 Bluetooth libraries can do for the Kindle. The `.a` membe
   (`btctrler.a(lmp.c.o)`, `authentication.c.o`).
 - Observed: `sm.c` reads `config_le_sm_sub_sc_enable` in one place only, together with `config_le_sm_sub_sc_bridge_edr_enable`, to call
   `spp_set_miss_connect_en(0)` on disconnect.
-- Inferred: pairing with the Kindle will be LE legacy Just Works (STK from TK = 0), bonded. Whether the Kindle accepts legacy pairing is
+- Inferred: pairing with the Kindle will be LE legacy Just Works (STK from TK = 0), bonded. Whether the Kindle accepts legacy pairing was
   the open question from the design ("If Secure Connections is missing, test whether the Kindle accepts legacy Just Works pairing").
+- Observed on the unit (2026-11-15): the Kindle Colorsoft accepts it.
 
 **Resolving the Kindle's resolvable private address with its IRK: built in, no switch.**
 - Observed: there is no privacy/IRK switch in `lib_btstack_config.c` or `lib_btctrler_config.c`.
