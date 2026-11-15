@@ -4,10 +4,10 @@ Builds the Kindle Click app (`fw/src` on top of the Jieli AC632N SDK HID tree, `
 board `CONFIG_BOARD_AC632N_DEMO`) in a `linux/amd64` container. Output: `fw/out/app.bin`,
 raw q32s code linked for entry `0x1E00120` (first bytes `eeff xxxx xxxx edff`).
 
-    fw/build.sh                       # (or `make fw-build`) clones the SDK into fw/sdk/ (gitignored), builds, writes fw/out/app.bin
+    fw/build.sh                       # clones the SDK into fw/sdk/ (gitignored), builds, writes fw/out/app.bin
+    make fw-build                     # the same, then packs app.bin into the variant's image: fw/out/e2-kindle.bin
     SDK_SRC=/path/to/clone fw/build.sh   # same, cloning from a local copy instead of GitHub
-    make fw-test                      # host tests of the kc_*.c units (seconds)
-    make tools-test                   # tests of the image packer tools/jlimg.py (needs firmware/*.bin)
+    make test                         # host tests: the kc_*.c units, the image packer (needs firmware/*.bin), the updater client
 
 - SDK: `https://github.com/Jieli-Tech/fw-AC63_BT_SDK` at commit `fdc018de81629e21e594d677cf05f87d288be0f0` (HEAD is verified after checkout).
 - `fw/sdk` is owned by the script: each run does `git reset --hard` to that commit, `git clean -fdx`, copies
@@ -28,7 +28,7 @@ raw q32s code linked for entry `0x1E00120` (first bytes `eeff xxxx xxxx edff`).
 
 `src/app_kindle_click.c` is the app (keys, BLE events, advertising, power; started from `apps/hid/examples/keypage/app_keypage.c`),
 `src/app_kindle_send.c` the report path (press queue and 20 ms send tick); `src/kc_*.c` are the SDK-free protocol, key and link
-units that `make fw-test` tests on the host. (The SDK-bound files must not be named `kc_*.c`: `make fw-test` compiles that glob.) `0003` changes, all on top of 0001:
+units that `make test` tests on the host. (The SDK-bound files must not be named `kc_*.c`: `make test` compiles that glob.) `0003` changes, all on top of 0001:
 
 | Where (SDK path) | Change |
 |---|---|

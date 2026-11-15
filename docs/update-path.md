@@ -132,7 +132,7 @@ Inferred cause (not proven on the unit):
 
 Fix in the sources (not on the unit): the SDK's battery detect is off (`TCFG_SYS_LVD_EN 0`: no VBAT check at start, no low-battery event), self power-off is off (`TCFG_E2_SELF_POWER_OFF 0`) until wake-up is proven, LED on PB5 driven, and a status line on the serial port (send `?`).
 
-Ways back in: a start that passes the check (then `e2boot.py enter PORT --yes` at once, or `make fw-rescue yes=1` waiting for it), or the mask ROM's USB download mode, which needs a forced-download tool.
+Ways back in: a start that passes the check (then `e2boot.py enter PORT --yes` at once, or `make fw-write reboot=1` waiting for it (then named `make fw-rescue yes=1`)), or the mask ROM's USB download mode, which needs a forced-download tool.
 
 Forced download, read from this chip's ROM listing (`sdk/rom.lst`, `usb_key_isr` at `0x106350`, `check_key_type` at `0x10563a`):
 

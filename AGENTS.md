@@ -16,7 +16,7 @@ Two linked projects for one device, the HANLINYUE "E2 Control" Bluetooth page tu
 - Never flash an image built for another chip. The vendor's Kindle builds are for AC636N.
 - Do not flash the custom firmware until every item of the "Before flashing" checklist in `fw/README.md` holds. The first custom flash (2026-11-10) went ahead on the owner's decision with items 4 and 5 open: the pins come from the stock firmware and are not measured on the board.
 - Device state as of 2026-11-15: **the first brightness-mode build is on the unit and runs** (image SHA-256 starting `49047d7822605b87`). The Kindle Colorsoft paired with it as a "Kindle Click"; page turns, sleep and brightness mode work (`docs/update-path.md`, "Brightness mode on the unit"). The sources are ahead of the unit by the review fixes listed there: flash them only with the owner's go-ahead, and have the third button and the LED checked afterwards. The unit was locked out from 2026-11-10 to 2026-11-15 and came back by itself; the cause is unknown (`docs/update-path.md`, "Lockout" and "Back in"). Its stock image was the vendor's `zoom-phone-tablet` (proved by block CRCs). Check which mode the unit is in before assuming a serial port exists.
-- `tools/e2boot.py enter`, `flash`, `rescue` and `reboot`, and `make fw-rescue`, change the device: each run needs that go-ahead, and the tool refuses them without `--yes`. `info` and `verify` only read, but need the unit in update mode.
+- `tools/e2boot.py enter`, `flash`, `rescue` and `reboot`, and `make fw-write`, change the device: each run needs that go-ahead. The tool refuses them without `--yes`, and the Makefile target without `reboot=1`. `info` and `verify` only read, but need the unit in update mode.
 - Serial protocol: JSON at 460800 baud on `/dev/cu.usbmodem*` (on macOS set the speed with the `IOSSIOSPEED` ioctl; `pyserial` is not installed). The stock firmware sometimes drops the first command after the port opens, so send a `get` first.
 - Firmware images (`firmware/*.bin`) and vendor `.ufw` files stay out of git; only hashes and manifests are committed.
 
@@ -31,12 +31,9 @@ make ghidra-score                     # q32s decoder vs the vendor ROM listing; 
 make ghidra-import variant=kobo       # analyze one variant into ghidra/project/E2, pseudo-C to extracted/<variant>/ghidra/decompiled.c
 
 # own firmware
-make test                             # fw-test + tools-test
-make fw-test                          # host tests for the pure C logic (seconds)
-make tools-test                       # image-packer tests (needs firmware/*.bin) and updater-client tests
-make fw-build                         # Docker: Jieli toolchain container -> fw/out/app.bin (~20 s after the first image build)
-make fw-image base=<flash image>      # put fw/out/app.bin into an existing image, everything else byte-identical
-make fw-rescue yes=1                  # WRITES TO THE DEVICE: wait for the E2 on USB, flash fw/out/e2-kindle.bin, reboot
+make test                             # all host tests (seconds): pure C logic, image packer (needs firmware/*.bin), updater client
+make fw-build                         # Docker build -> fw/out/app.bin (~20 s), then packed into firmware/e2control-$(variant).bin -> fw/out/e2-kindle.bin
+make fw-write reboot=1                # WRITES TO THE DEVICE: wait for the E2 on USB, flash fw/out/e2-kindle.bin, reboot
 python3 -I tools/e2boot.py            # client for the unit's USB updater: enter, info, verify, flash, reboot, rescue
 ```
 
@@ -68,7 +65,7 @@ An **overlay on Jieli's public SDK** (`Jieli-Tech/fw-AC63_BT_SDK`, pinned commit
 
 - `fw/build.sh` clones the SDK into `fw/sdk/`, **hard-resets and cleans it on every build**, copies `fw/src/` into the SDK tree, applies `fw/patches/*.patch` in name order, builds in Docker, then checks the result (size, first instructions, load address). Never edit `fw/sdk/` by hand: SDK changes go into the patches (regenerate a patch from a diff of the SDK tree). `0005-e2-board.patch` holds the E2's pins, read from the stock firmware (table in `fw/README.md`).
 - **Two kinds of source files, kept apart on purpose:**
-  - `fw/src/kc_*.c/.h` — pure C99, no SDK includes, host-tested in `fw/tests/test_kc.c`. Protocol bytes (`kc_proto`), key→action, the page/brightness mode and its 15 s return (`kc_keys`), link-ready gate and press queue (`kc_link`), power-off decision (`kc_power`), update-command matcher (`kc_update_cmd`). `make fw-test` globs `kc_*.c`, so an SDK-bound file must not use that prefix.
+  - `fw/src/kc_*.c/.h` — pure C99, no SDK includes, host-tested in `fw/tests/test_kc.c`. Protocol bytes (`kc_proto`), key→action, the page/brightness mode and its 15 s return (`kc_keys`), link-ready gate and press queue (`kc_link`), power-off decision (`kc_power`), update-command matcher (`kc_update_cmd`). `make test` globs `kc_*.c`, so an SDK-bound file must not use that prefix.
   - `fw/src/app_*.c`, `fw/src/e2_*.c` — SDK-bound glue: BLE events and keys (`app_kindle_click`), report sending (`app_kindle_send`), USB update entry (`e2_update`), power policy (`e2_power`). They only compile inside the container; editor diagnostics about missing SDK headers are noise.
 - The GATT table is generated by `fw/att_table.py` (`gen` writes the SDK profile header used in patch 0003, `dump fw/out/app.bin` reads the table back from a built image). The Kindle identifies the remote by exact bytes (manufacturer data `71 01 04 43`, PnP ID `01 71 01 43 04 00 01`, one keyboard+consumer input report with ID 1); do not change them without the spec.
 - **Constraints that shape the code** (reasons are in the spec and `fw/README.md`):
@@ -80,7 +77,7 @@ An **overlay on Jieli's public SDK** (`Jieli-Tech/fw-AC63_BT_SDK`, pinned commit
 
 ## Conventions
 
-- Makefile targets carry `## [STEP N] …` help comments and are listed in `.PHONY`; firmware targets use the `fw-` prefix.
+- Makefile targets carry `## [STEP N] …` help comments and are listed in `.PHONY`; firmware targets use the `fw-` prefix. Keep the target list short: `variant=` (default `zoom-phone-tablet`, the owner's unit) selects the image for `ghidra-import` and `fw-build`.
 - Docs are written in plain, short sentences and separate **observed / inferred / unknown**; keep that when adding findings.
 - Work on `main` (the only branch). Commit only when asked.
 - Subagent tasks that dig deep into the vendor firmware have twice been stopped by model safeguards; keep such tasks narrow and framed as plain SDK work.

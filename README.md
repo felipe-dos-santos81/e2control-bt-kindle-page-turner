@@ -5,11 +5,13 @@ Two things for the **HANLINYUE E2 Control** Bluetooth page turner (Jieli AC632N 
 1. **Own firmware** that makes the remote look like Amazon's Kindle Click, so a stock Kindle pairs with it. It works on a Kindle Colorsoft (2026-11-15).
 2. **Reverse-engineering notes and tools** for the vendor firmware. The own firmware is built on them.
 
+> **Warning:** flashing this firmware can permanently damage the "E2 Control" device. There is no recovery tool. Use it at your own risk, and read [Before you flash](#before-you-flash) first.
+
 The data comes from probes of one unit and from the vendor's public download servers.
 
 ```sh
 make help    # list all targets
-make test    # run all host tests (no device, no Docker)
+make test    # run all host tests (no device, no Docker; needs the images in firmware/)
 ```
 
 ## Kindle firmware
@@ -36,10 +38,11 @@ The remote starts in page mode. Brightness mode ends 15 s after the last press; 
 ### Build and flash
 
 ```sh
-make fw-build                                         # build fw/out/app.bin in the Jieli toolchain container (Docker)
-make fw-image base=firmware/e2control-<variant>.bin   # put the app into your unit's image -> fw/out/e2-kindle.bin
-make fw-rescue yes=1                                  # WRITES TO THE DEVICE: wait for the E2 on USB, flash, reboot
+make fw-build variant=<your unit's variant>   # build the app (Docker) and pack it into that variant's image: fw/out/e2-kindle.bin
+make fw-write reboot=1                        # WRITES TO THE DEVICE: wait for the E2 on USB, flash, reboot
 ```
+
+`variant` defaults to `zoom-phone-tablet`; `make help` lists the others. `fw-write` refuses to run without `reboot=1`.
 
 The steps one at a time, with `tools/e2boot.py` (needs `brew install hidapi`):
 
