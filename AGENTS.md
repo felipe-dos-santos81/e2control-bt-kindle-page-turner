@@ -75,6 +75,13 @@ An **overlay on Jieli's public SDK** (`Jieli-Tech/fw-AC63_BT_SDK`, pinned commit
   - The BD19 Bluetooth library has no LE Secure Connections; pairing is legacy Just Works. The Kindle Colorsoft accepts it (seen 2026-11-15).
   - Board pins are read from the stock firmware and held in board-config macros. The three keys and the USB-power sense work on the unit, and the owner's checks report the LED working; the wake-up pins are untested.
 
+## Releases
+
+- A tag `vX.Y.Z` pushed to GitHub runs `.github/workflows/release.yml`: host tests, `fw/build.sh`, `tools/release/package.sh`, then a GitHub Release with `e2-kindle-click-<version>.zip` and `SHA256SUMS`. A tag with a suffix (`v1.1.0-rc1`) makes a pre-release. A manual run of the workflow builds the archive as a workflow artifact and publishes nothing.
+- The archive holds `app.bin`, `jlimg.py`, `e2boot.py`, `README.txt` and the two licenses. It never holds a vendor image: `package.sh` fails on any other file. `tools/release/README.txt` is what the user reads, and it becomes the release notes; keep it in step with the firmware's behavior.
+- The repo is public and a release is public at once. Pushing a tag needs the owner's ask. Tag only sources that have run on the unit: `README.txt` says they have.
+- Check a change locally with `actionlint`, `shellcheck tools/release/package.sh` and `make fw-build && tools/release/package.sh 0.0.0-dev` (writes `dist/`). CI has no vendor images, so `tools/test_jlimg.py` skips there.
+
 ## Conventions
 
 - Makefile targets carry `## [STEP N] …` help comments and are listed in `.PHONY`; firmware targets use the `fw-` prefix. Keep the target list short: `variant=` (default `zoom-phone-tablet`, the owner's unit) selects the image for `ghidra-import` and `fw-build`.

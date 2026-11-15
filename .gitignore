@@ -8,3 +8,4 @@ fw/sdk/
 fw/out/
 .DS_Store
 *.ufw
+dist/

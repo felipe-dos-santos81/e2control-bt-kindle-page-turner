@@ -28,6 +28,10 @@ A stock Kindle (2024 models onward, software 5.20.1.0.2) accepts only one page t
 
 The remote starts in page mode. Brightness mode ends 15 s after the last press; the LED is steady on while it lasts. The side selector does nothing.
 
+### Download
+
+Each [release](https://github.com/felipe-dos-santos81/e2control-bt-kindle-page-turner/releases) holds the compiled app (`app.bin`), the two tools that pack and flash it, and a `README.txt` with the steps. It holds no ready-to-flash image: you pack the app into the vendor image of your own unit. The flash tool is written for macOS.
+
 ### Before you flash
 
 - There is no recovery tool for this unit. A firmware that is written correctly but does not start locks you out. This unit was locked out for five days, and the cause is unknown.
@@ -35,7 +39,7 @@ The remote starts in page mode. Brightness mode ends 15 s after the last press; 
 - The updater cannot read flash, so there is no dump. Before the first write, find your variant with `e2boot.py verify` and keep that image. Pairing data and settings are not saved.
 - Go through the "Before flashing" checklist in [`fw/README.md`](fw/README.md).
 
-### Build and flash
+### Build and flash from source
 
 ```sh
 make fw-build variant=<your unit's variant>   # build the app (Docker) and pack it into that variant's image: fw/out/e2-kindle.bin
@@ -183,12 +187,13 @@ Ghidra misses the click handlers' jump table (`tbb` at `0x1E05D2A`) and the gest
 | `tools/e2boot.py` | Client for the unit's USB updater: enter update mode, compare the flash with an image by block CRC, flash, reboot. |
 | `tools/romlst.py`, `tools/q32s_score.py` | Rebuild the BD19 mask ROM from the SDK's `rom.lst`; compare Ghidra's decoding with it. |
 | `tools/fndiff.py`, `tools/hiddesc.py` | Compare variants by decompiled C, per function; print HID report descriptors from a flash range. |
+| `tools/release/`, `.github/workflows/release.yml` | The release: a version tag builds the app on GitHub and publishes it. |
 | `ghidra/JieLi/` | Ghidra processor module (Quarkslab fork, q32s fixed here; see its README). |
 | `ghidra/scripts/` | `SetupE2` (memory map, labels), `Reanalyze` (analysis to a fixed point), `ExportE2` (pseudo-C), `DisasmAt`, `DumpErrors`, `Xrefs`. |
 | `sdk/` | Two reference files from the Jieli SDK. |
 | `firmware/` | Vendor manifests and hashes. The images are not committed. |
 | `docs/` | Designs, plans, and the device record. |
-| `extracted/`, `ghidra/project/`, `fw/sdk/`, `fw/out/` | Generated. Not committed. `make clean` removes all but `fw/sdk/`. |
+| `extracted/`, `ghidra/project/`, `fw/sdk/`, `fw/out/`, `dist/` | Generated. Not committed. `make clean` removes the first two and `fw/out/`. |
 
 ## Resources
 
@@ -197,3 +202,7 @@ Ghidra misses the click handlers' jump table (`tbb` at `0x1E05D2A`) and the gest
 - [kagaimiq/jielie](https://kagaimiq.github.io/jielie/misc/cipher.html): notes on Jieli ciphers and data formats.
 - [quarkslab/ghidra-jieli](https://github.com/quarkslab/ghidra-jieli): Ghidra module for pi32, pi32v2 and q32s. `ghidra/JieLi` starts from it. See also the [SSTIC 2026 paper on pi32v2](https://www.sstic.org/media/SSTIC2026/SSTIC-actes/retro-ingenierie-micrologiciel-pi32v2/SSTIC2026-Article-retro-ingenierie-micrologiciel-pi32v2-cauquil.pdf).
 - [Jieli-Tech](https://github.com/Jieli-Tech): public SDKs. The Bluetooth stack ships as binary `lib.a` files only.
+
+## License
+
+The project's own code is under the [MIT License](LICENSE). Parts from others keep their licenses: `ghidra/JieLi` is a fork of quarkslab/ghidra-jieli (Apache 2.0, [`ghidra/JieLi/LICENSE`](ghidra/JieLi/LICENSE)); `sdk/` holds two files from Jieli's SDK (Apache 2.0); a built `app.bin` contains code from that SDK. The vendor's firmware images are not included and remain the property of their rights holders. This project is not affiliated with Amazon, HANLINYUE or Jieli.

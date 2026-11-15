@@ -88,5 +88,7 @@ def test_cli_error_exits_cleanly_and_writes_nothing():
         assert r.returncode != 0 and "VM" in r.stderr and "Traceback" not in r.stderr and not out.exists()
 
 if __name__ == "__main__":
+    if not IMG.exists():        # the vendor images are not in git (README.md, "Vendor firmware images"); CI has none
+        sys.exit(print("skipped: no vendor images in firmware/"))
     for n, f in list(globals().items()):
         if n.startswith("test_"): f(); print("ok", n)

@@ -1,0 +1,66 @@
+# Builds the Kindle Click app for the E2 Control and, on a version tag,
+# publishes a GitHub Release with e2-kindle-click-<version>.zip and SHA256SUMS.
+# A manual run (workflow_dispatch) builds and uploads the archive as a workflow
+# artifact only. No vendor firmware image is ever downloaded, cached or
+# packaged: the release holds the compiled app, and the user packs it into the
+# image of their own unit. CI has no device: it runs the host tests and checks
+# the built app (tools/release/package.sh).
+name: release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Version
+        run: echo "VER=$(if [ "$GITHUB_REF_TYPE" = tag ]; then echo "${GITHUB_REF_NAME#v}"; else echo 0.0.0-dev; fi)" >> "$GITHUB_ENV"
+      - name: Host tests
+        run: make test
+      - name: Build the app
+        # Clones the pinned Jieli SDK and builds in the toolchain container (fw/Dockerfile, hashes pinned).
+        run: fw/build.sh
+      - name: Package and smoke test
+        run: tools/release/package.sh "$VER"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: firmware
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: firmware
+          path: dist
+      - name: Checksums
+        run: cd dist && sha256sum -c SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=""
+          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
+          # The user README as a preformatted block: as Markdown it loses <variant>.
+          { echo '```text'; sed "s/@VERSION@/${GITHUB_REF_NAME#v}/g" tools/release/README.txt; echo '```'; } > notes.md
+          # shellcheck disable=SC2086 # $pre is one flag or nothing
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
+            --notes-file notes.md $pre dist/*.zip dist/SHA256SUMS
