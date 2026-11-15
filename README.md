@@ -28,6 +28,16 @@ A stock Kindle (2024 models onward, software 5.20.1.0.2) accepts only one page t
 
 The remote starts in page mode. Brightness mode ends 15 s after the last press; the LED is steady on while it lasts. The side selector does nothing.
 
+### Pairing again
+
+Clear the pairing on both sides. If only one side forgets, the other still holds the old key and the new pairing can fail.
+
+1. On the Kindle, remove the "Kindle Click" from its Bluetooth devices.
+2. On the remote, hold the third button for about 28 s, until the LED goes back to its slow flash. The remote forgets the pairing and advertises again. If the Kindle is connected, it goes to sleep after the first second of the hold; keep holding, then wake it.
+3. On the Kindle, pair again. It lists the remote as a "Kindle Click".
+
+Flashing keeps the pairing, so this is not needed after an update. The 28 s hold is not yet checked on the unit.
+
 ### Download
 
 Each [release](https://github.com/felipe-dos-santos81/e2control-bt-kindle-page-turner/releases) holds the compiled app (`app.bin`), the two tools that pack and flash it, and a `README.txt` with the steps. It holds no ready-to-flash image: you pack the app into the vendor image of your own unit. The flash tool is written for macOS.
