@@ -21,7 +21,7 @@ pairs with it. The Kindle lists it as a "Kindle Click".
   Next / previous, held         nothing         keeps changing
   Third button, short press     to brightness   to page mode
   Third button, long press      Kindle sleeps   Kindle sleeps
-  Third button, held 28 s       forgets the pairing
+  Third button, held 10 s       forgets the pairing
 
 The remote starts in page mode. Brightness mode ends 15 s after the
 last press; the LED is steady on while it lasts.
@@ -70,8 +70,9 @@ Known limits
   is on. Switching it off and waking it up are untested.
 - The Kindle is told a fixed battery level of 88 %.
 - The side selector does nothing.
-- The test unit once stopped starting after it was switched off, and
-  came back by itself five days later. The cause is unknown.
+- The test unit has twice stopped starting after it was switched off.
+  The first time it came back by itself five days later. The cause is
+  unknown.
 
 Licence
 -------

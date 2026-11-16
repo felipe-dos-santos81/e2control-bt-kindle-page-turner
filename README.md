@@ -2,7 +2,7 @@
 
 Two things for the **HANLINYUE E2 Control** Bluetooth page turner (Jieli AC632N chip):
 
-1. **Own firmware** that makes the remote look like Amazon's Kindle Click, so a stock Kindle pairs with it. It works on a Kindle Colorsoft (2026-11-15).
+1. **Own firmware** that makes the remote look like Amazon's Kindle Click, so a stock Kindle pairs with it. It worked on a Kindle Colorsoft on 2026-11-15; the test unit has since stopped starting (see [Status](#status-and-open-points)).
 2. **Reverse-engineering notes and tools** for the vendor firmware. The own firmware is built on them.
 
 > **Warning:** flashing this firmware can permanently damage the "E2 Control" device. There is no recovery tool. Use it at your own risk, and read [Before you flash](#before-you-flash) first.
@@ -11,7 +11,7 @@ The data comes from probes of one unit and from the vendor's public download ser
 
 ```sh
 make help    # list all targets
-make test    # run all host tests (no device, no Docker; needs the images in firmware/)
+make test    # run all host tests (no device, no Docker)
 ```
 
 ## Kindle firmware
@@ -24,7 +24,7 @@ A stock Kindle (2024 models onward, software 5.20.1.0.2) accepts only one page t
 | Next / previous, held | nothing | keeps changing the brightness |
 | Third button, short press | go to brightness mode | go to page mode |
 | Third button, long press | Kindle sleeps | Kindle sleeps |
-| Third button, held about 28 s | forget the pairing | forget the pairing |
+| Third button, held about 10 s | forget the pairing | forget the pairing |
 
 The remote starts in page mode. Brightness mode ends 15 s after the last press; the LED is steady on while it lasts. The side selector does nothing.
 
@@ -33,18 +33,18 @@ The remote starts in page mode. Brightness mode ends 15 s after the last press; 
 Clear the pairing on both sides. If only one side forgets, the other still holds the old key and the new pairing can fail.
 
 1. On the Kindle, remove the "Kindle Click" from its Bluetooth devices.
-2. On the remote, hold the third button for about 28 s, until the LED goes back to its slow flash. The remote forgets the pairing and advertises again. If the Kindle is connected, it goes to sleep after the first second of the hold; keep holding, then wake it.
+2. On the remote, hold the third button for about 10 s, until the LED goes back to its slow flash. The remote forgets the pairing and advertises again. If the Kindle is connected, it goes to sleep after the first second of the hold; keep holding, then wake it.
 3. On the Kindle, pair again. It lists the remote as a "Kindle Click".
 
-Flashing keeps the pairing, so this is not needed after an update. The 28 s hold is not yet checked on the unit.
+Flashing keeps the pairing, so this is not needed after an update. The 10 s hold is not yet checked on the unit.
 
 ### Download
 
-Each [release](https://github.com/felipe-dos-santos81/e2control-bt-kindle-page-turner/releases) holds the compiled app (`app.bin`), the two tools that pack and flash it, and a `README.txt` with the steps. It holds no ready-to-flash image: you pack the app into the vendor image of your own unit. The flash tool is written for macOS.
+Each [release](https://github.com/felipe-dos-santos81/e2control-bt-kindle-page-turner/releases) holds the compiled app (`app.bin`), the two tools that pack and flash it, and a `README.txt` with the steps. It holds no ready-to-flash image: you pack the app into the vendor image of your own unit. The flash tool is written for macOS. No release is published yet.
 
 ### Before you flash
 
-- There is no recovery tool for this unit. A firmware that is written correctly but does not start locks you out. This unit was locked out for five days, and the cause is unknown.
+- There is no recovery tool for this unit. A firmware that is written correctly but does not start locks you out. The test unit has stopped starting twice, the first time for five days. The cause is unknown.
 - Flash only an AC632N image built on your unit's own image. An image for another chip can make the device unusable. The vendor's Kindle builds for other models are AC636N images. `e2boot.py flash` refuses an image whose boot area differs from the device's.
 - The updater cannot read flash, so there is no dump. Before the first write, find your variant with `e2boot.py verify` and keep that image. Pairing data and settings are not saved.
 - Go through the "Before flashing" checklist in [`fw/README.md`](fw/README.md).
@@ -71,9 +71,10 @@ To go back to the stock firmware, flash your unit's vendor image the same way.
 
 ### Status and open points
 
-Checked on the unit: pairing, page turns, sleep, brightness mode, and the update path from the own firmware.
+Checked on the unit (2026-11-15): pairing, page turns, sleep, brightness mode, and the update path from the own firmware. Not checked: the changes made after that, among them the third button read as a click-only key and the 10 s hold.
 
-- **The lockout.** Its cause is unknown, so it can happen again. The only other way in is the chip ROM's USB download mode, which needs a forced-download tool.
+- **The unit does not start.** Since the evening of 2026-11-15 it shows no USB device, no LED and no Bluetooth. The same happened on 2026-11-10, and it came back by itself five days later. Both times the side selector had been moved or the remote switched off. The cause is unknown; [`docs/update-path.md`](docs/update-path.md) has the record. The only other way in is the chip ROM's USB download mode, which needs a forced-download tool.
+- **USB starts late.** The firmware starts USB after the Bluetooth stack, so a start that hangs earlier cannot be rescued over USB. To be moved to the very start.
 - **Power-off and wake-up.** Untested. The firmware never switches the unit off, so the battery drains while it is on.
 - **Battery level.** The Kindle is told a fixed 88 %.
 - **Board pins.** They come from the stock firmware's tables (`fw/patches/0005-e2-board.patch`). The keys, the LED and the USB-power sense behave as expected; the wake-up pins and the side selector are untested.
@@ -203,7 +204,7 @@ Ghidra misses the click handlers' jump table (`tbb` at `0x1E05D2A`) and the gest
 | `sdk/` | Two reference files from the Jieli SDK. |
 | `firmware/` | Vendor manifests and hashes. The images are not committed. |
 | `docs/` | Designs, plans, and the device record. |
-| `extracted/`, `ghidra/project/`, `fw/sdk/`, `fw/out/`, `dist/` | Generated. Not committed. `make clean` removes the first two and `fw/out/`. |
+| `extracted/`, `ghidra/project/`, `fw/sdk/`, `fw/out/`, `dist/` | Generated. Not committed. `make clean` removes all but `fw/sdk/`. |
 
 ## Resources
 

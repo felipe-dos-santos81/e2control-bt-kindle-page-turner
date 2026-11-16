@@ -7,7 +7,7 @@ raw q32s code linked for entry `0x1E00120` (first bytes `eeff xxxx xxxx edff`).
     fw/build.sh                       # clones the SDK into fw/sdk/ (gitignored), builds, writes fw/out/app.bin
     make fw-build                     # the same, then packs app.bin into the variant's image: fw/out/e2-kindle.bin
     SDK_SRC=/path/to/clone fw/build.sh   # same, cloning from a local copy instead of GitHub
-    make test                         # host tests: the kc_*.c units, the image packer (needs firmware/*.bin), the updater client
+    make test                         # host tests: the kc_*.c units, the image packer (skips without firmware/*.bin), the updater client
 
 - SDK: `https://github.com/Jieli-Tech/fw-AC63_BT_SDK` at commit `fdc018de81629e21e594d677cf05f87d288be0f0` (HEAD is verified after checkout).
 - `fw/sdk` is owned by the script: each run does `git reset --hard` to that commit, `git clean -fdx`, copies
@@ -112,7 +112,7 @@ Buttons (design: `docs/superpowers/specs/2026-11-15-brightness-mode-design.md`).
 | Next or previous, double to fifth press | 2 to 4 page turns | 2 to 4 brightness steps |
 | Next or previous, held | nothing | one step after 0.75 s, then one step every 0.15 s |
 | Third button, long press | Kindle sleeps | Kindle sleeps; back to page mode |
-| Third button, held about 28 s | forget the pairing | same |
+| Third button, held about 10 s | forget the pairing | same |
 
 Brightness mode ends by itself 15 s after the last button event, and when the link to the Kindle starts or drops.
 

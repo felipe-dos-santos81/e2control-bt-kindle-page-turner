@@ -92,3 +92,4 @@ My calls, for the owner to correct: next is brighter and previous is dimmer; hol
 - The third button is a click-only key in the SDK key driver. Its short press is reported at the release, not 0.2 s later, so a quick press on another button cannot cancel it. Each short press is one toggle; there are no double or triple presses on it.
 - The 15 s return is judged at the press, not at the event: an event that arrives up to 0.4 s after the LED went off counts as made in brightness mode.
 - If the firmware cannot start the timer for the 15 s return, it stays in page mode.
+- The hold that forgets the pairing is about 10 s, not 28 s (owner, 2026-11-15).

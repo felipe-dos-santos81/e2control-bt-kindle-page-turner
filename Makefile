@@ -18,10 +18,10 @@ help: ## Print this help message
 		{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 	@printf "\n\033[33mVariants:\033[0m (default: $(variant))\n  $(VARIANTS)\n"
 
-clean: ## Remove generated files: extracted/, ghidra/project/, fw/out/
-	rm -rf extracted ghidra/project fw/out
+clean: ## Remove generated files: extracted/, ghidra/project/, fw/out/, dist/
+	rm -rf extracted ghidra/project fw/out dist
 
-test: ## Run all host tests (no device, no Docker; needs the images in firmware/)
+test: ## Run all host tests (no device, no Docker; the packer tests skip without the images in firmware/)
 	mkdir -p fw/out
 	$(CC) -std=c99 -Wall -Wextra -Werror -Ifw/src fw/src/kc_*.c fw/tests/test_kc.c -o fw/out/test_kc
 	fw/out/test_kc

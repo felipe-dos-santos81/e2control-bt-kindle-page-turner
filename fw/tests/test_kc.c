@@ -85,9 +85,11 @@ static void test_key_event(void) {
     assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_CLICK, 0, &t) == KC_NONE && t == 0);
     assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_DOUBLE_CLICK, 0, &t) == KC_NONE && t == 0);
     assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_LONG, 0, &t) == KC_SLEEP && t == 1);
-    for (int i = 1; i < KC_CLEAR_BOND_HOLDS; i++)                    /* holds 1..182: nothing, no repeated Sleep */
+    /* The SDK key driver reports a long press after 750 ms, then a hold event every 150 ms: about 10 s in all. */
+    assert(750 + 150 * KC_CLEAR_BOND_HOLDS >= 10000 && 750 + 150 * KC_CLEAR_BOND_HOLDS < 10150);
+    for (int i = 1; i < KC_CLEAR_BOND_HOLDS; i++)                    /* the holds before the last: nothing, no repeated Sleep */
         assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, 0, &t) == KC_NONE && t == 0);
-    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, 0, &t) == KC_CLEAR_BOND && t == 1);   /* exactly on hold 183 */
+    assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, 0, &t) == KC_CLEAR_BOND && t == 1);   /* exactly on the last hold */
     assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_HOLD, 0, &t) == KC_NONE);                   /* and only once */
     assert(kc_key_event(&k, KC_KEY_AUX, KC_EV_UP, 0, &t) == KC_NONE);                     /* release restarts the count */
     for (int i = 1; i < KC_CLEAR_BOND_HOLDS; i++)

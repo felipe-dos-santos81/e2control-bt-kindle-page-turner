@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include "kc_proto.h"
 
-#define KC_CLEAR_BOND_HOLDS 183   /* same count as stock */
+#define KC_CLEAR_BOND_HOLDS 62    /* about 10 s: a long press after 0.75 s, then a hold event every 0.15 s (stock: 183, 28 s) */
 #define KC_BRIGHTNESS_IDLE_MS 15000u    /* brightness mode ends this long after the last key event */
 /* A key event arrives after its press: a click 0.2 s after the release (the SDK key driver waits for a second
  * press). An event that arrives up to this long after the mode ended was pressed while the mode was still shown. */
