@@ -188,6 +188,37 @@ Not on the unit yet: the build with the review fixes (third button as a click-on
 
 Not yet reported: reconnection after the Kindle sleeps for a long time.
 
+## Not starting again (2026-11-15, evening, open)
+
+Observed:
+
+- About 20:25 the owner plugged the unit in to have the build with the review fixes flashed. The Mac saw no E2 on USB, in either mode, also after a re-plug. The owner reported: the remote did not act on the Kindle, and the side selector had been moved, or the remote switched off, since the last flash.
+- At 20:41:03 the unit started: at 20:41:22 the status line read `vbat=443 pa8=2312 pa1=906 usb=1 pb6=1 up=19`. What started it is not known.
+- `e2boot.py enter` put it in update mode. `flash` answered "device already holds this image", and `verify` gave 42 of 42 blocks for the build with the review fixes (image SHA-256 starting `844d93be71d46da1`) and 6 of 42 for the first brightness build. So the unit already held the newer build. That write is not in this record; who made it and when is not known.
+- `e2boot.py reboot` took the unit out of update mode. It did not come back on USB: nothing for 45 s, and nothing after a re-plug. In both flashes earlier that day the same command had it back within seconds.
+- The owner then reported: LED dark, no reaction on the Kindle, selector in the "turn pages horizontal" position.
+
+Inferred:
+
+- The build with the review fixes can start and run: it answered on USB at 20:41.
+- Twice now (2026-11-10 and this evening) the unit stopped starting after the selector was moved or the remote was switched off.
+
+Unknown:
+
+- Whether the unit is off, or running without USB and Bluetooth.
+- What started it at 20:41:03.
+- Whether the newer build plays a part. It differs from the first brightness build in the third key's value (`0x83`), in how the LED state is read, and in the mode logic. Two readings of the sources and the build listing (one independent) found no change that runs at start, powers the unit off, or writes to flash: the key value is not used at start (`TCFG_POWER_ON_NEED_KEY 0`, `TCFG_SOFTOFF_WAKEUP_KEY_DRIVER_ENABLE` off, long-press reset disabled in `board_power_init`), and the other changes run only on key, link and timer events.
+
+Later the same evening:
+
+- The owner held the third button for about 20 s, and later for about 28 s with the unit not running: no LED, no effect.
+- 21:03: still no E2 on USB.
+
+Read from the sources (both builds):
+
+- USB does not start first. In `app_start` it starts after the 3 s key check, the clock setup, the Bluetooth pre-init and `btstack_init()`. A hang or reset before that point gives exactly this picture: no USB, LED dark, no Bluetooth. The LED stays dark until the first advertising event, so a dark LED does not tell "off" from "stuck early".
+- The status line's VBAT readings on USB power were 4.06 V with the charge pin low (afternoon), then 4.60 V and 4.43 to 4.48 V with the charge pin high. A lithium cell does not read 4.4 to 4.6 V. One reading of it: at those moments the battery was not connected to the chip, and the chip ran from USB power alone. Not measured.
+
 ## Open questions for the device step
 
 - What the unit holds in the one differing block, and whether anything needs it.
